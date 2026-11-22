@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Citation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{color-scheme:dark;--c:#ffffff}
+  html,body{margin:0;width:100%;height:100%;background:transparent;overflow:hidden}
+  #box{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;padding:0 7%;box-sizing:border-box;cursor:default}
+  #q{font-family:"Inter",system-ui,-apple-system,"Helvetica Neue",sans-serif;font-weight:400;color:var(--c);line-height:1.16;letter-spacing:-.025em;margin:0;text-wrap:balance}
+  #q .w{display:inline-block;opacity:0;filter:blur(12px);transform:translateY(.12em);transition:opacity 1.6s ease,filter 1.8s ease,transform 1.8s cubic-bezier(.2,.7,.2,1)}
+  #q.on .w{opacity:1;filter:blur(0);transform:none}
+  #q.live .w{transition:none}
+  #q .w.mark{display:none}
+  #a{font-family:"Inter",system-ui,-apple-system,sans-serif;font-weight:500;text-transform:uppercase;letter-spacing:.24em;color:var(--c);opacity:0;margin-top:.9em;transition:opacity 1.6s ease 1.2s, letter-spacing 1.2s ease}
+  #a.on{opacity:.5}
+  /* survol : les mots respirent à peine */
+</style>
+</head>
+<body>
+<div id="box"><p id="q"></p><div id="a"></div></div>
+<script>
+(async () => {
+  const Q = new URLSearchParams(location.search);
+  if (Q.get('color')) document.documentElement.style.setProperty('--c', '#' + Q.get('color'));
+  let framed = true; try { framed = window.self !== window.top; } catch(e) {}
+  if (!framed) document.documentElement.style.background = '#191919';
+  const align = Q.get('align') || 'left';
+  document.getElementById('box').style.textAlign = align;
+
+  let data = { quote: "The best way to predict the future is to create it.", author: "Peter Drucker" };
+  try {
+    const r = await fetch('quote.json?d=' + new Date().toISOString().slice(0,10), { cache: 'no-store' });
+    if (r.ok) { const j = await r.json(); if (j.quote) data = j; }
+  } catch(e) {}
+
+  const q = document.getElementById('q'), a = document.getElementById('a');
+  const words = data.quote.replace(/^["“”\s]+|["“”\s]+$/g, '').split(/\s+/);
+  q.innerHTML = '<span class="w mark">“</span>' + words.map(w => `<span class="w">${w.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</span>`).join(' ') + '<span class="w mark">”</span>';
+  a.textContent = data.author || '';
+
+  // taille de texte calculée pour remplir l'espace disponible
+  const box = document.getElementById('box');
+  function fit(){
+    const W = box.clientWidth, H = box.clientHeight;
+    const pw = W * .86, ph = H * .8;
+    let lo = 8, hi = 160;
+    while (hi - lo > .5){
+      const s = (lo + hi) / 2;
+      q.style.fontSize = s + 'px'; a.style.fontSize = Math.max(8, s * .27) + 'px';
+      const h = q.offsetHeight + a.offsetHeight + s * .27 * .9;
+      if (h <= ph && q.scrollWidth <= pw + 2) lo = s; else hi = s;
+    }
+    q.style.fontSize = lo + 'px'; a.style.fontSize = Math.max(8, lo * .27) + 'px';
+  }
+  await document.fonts.ready;
+  fit(); addEventListener('resize', fit);
+
+  // apparition mot par mot
+  [...q.children].forEach((w, i) => w.style.transitionDelay = (i * .09) + 's');
+  requestAnimationFrame(() => requestAnimationFrame(() => { q.classList.add('on'); a.classList.add('on'); }));
+
+  // ---- Mise au point vivante ----
+  // Une zone de flou glisse lentement sur les mots, en continu.
+  // Le flou devient un peu plus fort au fil de la journée (net le matin, rêveur le soir).
+  const ws = [...q.querySelectorAll('.w:not(.mark)')], n = ws.length;
+  const PERIOD = +(Q.get('period') || 40);           // secondes pour un passage complet
+  const STRENGTH = +(Q.get('blur') || 1);
+  let hover = 0, hoverT = 0, last = 0;
+  box.addEventListener('pointerenter', () => hoverT = 1);
+  box.addEventListener('pointerleave', () => hoverT = 0);
+  setTimeout(() => {
+    q.classList.add('live');
+    const start = performance.now();
+    (function tick(now){
+      requestAnimationFrame(tick);
+      if (now - last < 40) return; last = now;
+      const t = (now - start) / 1000, d = new Date(), h = d.getHours() + d.getMinutes()/60;
+      const day = .75 + .55 * Math.max(0, Math.min(1, (h - 8) / 14));   // 8 h → 22 h
+      hover += (hoverT - hover) * .08;
+      const fadeIn = Math.min(1, t / 6);
+      const B = 5.5 * day * STRENGTH * (1 - hover) * fadeIn;
+      ws.forEach((w, i) => {
+        const ph = (t / PERIOD - i / Math.max(1, n) * .9) * Math.PI * 2;
+        const ph2 = (t / (PERIOD * 1.7) + i * .37) * Math.PI * 2;
+        const k = Math.pow(Math.max(0, Math.sin(ph)), 2.2) * .85 + Math.pow(Math.max(0, Math.sin(ph2)), 6) * .35;
+        const b = B * k;
+        w.style.filter = b > .05 ? `blur(${b.toFixed(2)}px)` : 'none';
+        w.style.opacity = (1 - k * .38 * (1 - hover)).toFixed(3);
+      });
+    })(performance.now());
+  }, (n * .09 + 1.9) * 1000);
+})();
+</script>
+</body>
+</html>
