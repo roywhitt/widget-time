@@ -37,14 +37,34 @@ jobs:
               j = json.loads(get("https://zenquotes.io/api/today"))
               return j[0]["q"].strip(), j[0]["a"].strip()
 
+          today = datetime.date.today().isoformat()
+          try:
+              old = json.load(open("citation/quote.json", encoding="utf-8"))
+          except Exception:
+              old = {}
+
+          # Déjà une vraie nouvelle citation aujourd'hui : on n'y touche plus
+          if old.get("date") == today and old.get("fresh"):
+              print("Citation du jour déjà à jour :", old.get("quote"))
+              raise SystemExit(0)
+
+          # La citation à ne pas répéter : celle de la veille
+          if old.get("date") == today:
+              hier = old.get("prev_quote") or old.get("quote")
+          else:
+              hier = old.get("quote")
+          norm = lambda q: re.sub(r"\W+", "", (q or "").lower())
+
           data = None
           for source in (brainyquote, zenquotes):
               for essai in range(3):
                   try:
                       quote, author = source()
-                      if quote:
-                          data = {"quote": quote, "author": author, "date": datetime.date.today().isoformat(), "source": source.__name__}
+                      if quote and norm(quote) != norm(hier):
+                          data = {"quote": quote, "author": author, "date": today, "source": source.__name__, "prev_quote": hier, "fresh": True}
                           break
+                      print(f"{source.__name__} : même citation qu'hier, on essaie ailleurs")
+                      break
                   except Exception as e:
                       print(f"{source.__name__} essai {essai+1} : {e}")
                       time.sleep(5)
@@ -52,7 +72,7 @@ jobs:
                   break
 
           if not data:
-              print("Aucune source disponible aujourd'hui : on garde la citation précédente.")
+              print("Pas de nouvelle citation disponible pour l'instant : on garde la précédente.")
           else:
               with open("citation/quote.json", "w", encoding="utf-8") as f:
                   json.dump(data, f, ensure_ascii=False, indent=2)
