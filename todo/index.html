@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Demain</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{color-scheme:dark;--cream:#fff4d6;--sky:#bfe6e8;--teal:#4fa3c7;--mag:#c25aa8;--acc:#ff5b2e;--mute:rgba(244,239,200,.45);--ln:rgba(244,239,200,.14);--fs:13px}
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;background:transparent;overflow:hidden;color:var(--cream);font-family:"Pixelify Sans",ui-monospace,monospace;font-size:var(--fs);-webkit-font-smoothing:none}
+button,input{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0}
+#w{position:absolute;inset:0;display:flex;flex-direction:column}
+#w.wide{flex-direction:row}
+#sky{position:relative;flex:0 0 52%;min-height:0;cursor:pointer}
+#w.wide #sky{flex:0 0 50%}
+#sky canvas{position:absolute;inset:0;width:100%;height:100%;image-rendering:pixelated}
+#side{flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;padding:.2em .9em .7em}
+#head{display:flex;align-items:baseline;gap:.6em;padding:.2em 0 .45em}
+#head b{font-weight:600;letter-spacing:.06em;color:var(--sky)}
+#count{color:var(--mute);font-size:.85em}
+#sync{margin-left:auto;width:.45em;height:.45em;background:var(--teal);image-rendering:pixelated;transition:background .3s}
+#sync.wait{background:var(--cream);animation:blink .6s steps(2) infinite}
+#sync.off{background:var(--mag)}
+@keyframes blink{50%{opacity:.2}}
+#add{display:flex;align-items:center;gap:.6em;border-bottom:1px dashed var(--ln);padding:.35em 0 .5em}
+#add .plus{color:var(--sky);font-weight:600;transition:transform .25s steps(3)}
+#add:focus-within .plus{transform:rotate(90deg);color:var(--cream)}
+#inp{flex:1;min-width:0;outline:none;caret-color:var(--sky)}
+#inp::placeholder{color:var(--mute)}
+#list{flex:1;overflow-y:auto;scrollbar-width:none;padding-top:.25em}
+#list::-webkit-scrollbar{display:none}
+.it{display:flex;align-items:flex-start;gap:.65em;padding:.32em .2em;border-radius:2px;position:relative;transition:background .2s;animation:inn .45s steps(5) both}
+@keyframes inn{from{opacity:0;transform:translateX(-.8em)}to{opacity:1;transform:none}}
+.it:hover{background:rgba(191,230,232,.06)}
+.it.hl{background:rgba(255,91,46,.09);box-shadow:inset 3px 0 0 var(--acc)}
+.it.hl .tx{color:#fff}
+.box{flex:none;width:.95em;height:.95em;margin-top:.12em;border:2px solid var(--cream);position:relative;cursor:pointer;transition:border-color .15s}
+.box::after{content:"";position:absolute;inset:2px;background:var(--acc);transform:scale(0);transition:transform .2s steps(3)}
+.box:hover::after{transform:scale(.6)}
+.it.done .box{border-color:var(--sky)}
+.it.done .box::after{transform:scale(1);background:var(--sky)}
+.tx{flex:1;min-width:0;line-height:1.25;word-break:break-word;outline:none;position:relative}
+.tx::after{content:"";position:absolute;left:0;top:55%;height:2px;width:0;background:var(--sky);transition:width .35s steps(6)}
+.it.done .tx{color:var(--mute)}
+.it.done .tx::after{width:100%}
+.it.out{animation:out .5s steps(5) forwards}
+@keyframes out{to{opacity:0;transform:translateX(1em);height:0;padding:0}}
+.dot{flex:none;width:.5em;height:.5em;margin-top:.38em;opacity:.85}
+.empty{color:var(--mute);padding:.8em 0;line-height:1.5}
+#toast{position:absolute;left:50%;bottom:.6em;transform:translate(-50%,.4em);background:rgba(30,28,36,.92);border:1px solid var(--ln);padding:.35em .7em;font-size:.9em;white-space:nowrap;opacity:0;pointer-events:none;transition:opacity .25s,transform .25s steps(3)}
+#toast.show{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+#toast button{color:var(--sky);margin-left:.6em;text-decoration:underline;cursor:pointer}
+</style>
+</head>
+<body>
+<div id="w">
+  <div id="sky" title="Clique pour ajouter une tâche"><canvas id="c"></canvas></div>
+  <div id="side">
+    <div id="head"><b id="ttl">À FAIRE</b><span id="count"></span><span id="sync" title="Synchronisé"></span></div>
+    <label id="add"><span class="plus">+</span><input id="inp" placeholder="Ajouter une tâche…" maxlength="120" autocomplete="off"></label>
+    <div id="list"></div>
+  </div>
+  <div id="toast"></div>
+</div>
+<script>
+(() => {
+// ================================================================
+//  Réglages : ?api=https://xxx.workers.dev&key=TA_CLE_SECRETE
+//  (sans api : les tâches restent sur cet appareil uniquement)
+// ================================================================
+const Q = new URLSearchParams(location.search);
+const API = (Q.get('api') || '').replace(/\/$/, ''), KEY = Q.get('key') || '';
+const DEMO = Q.get('demo') === '1';
+let framed = true; try { framed = window.self !== window.top; } catch(e) {}
+if (!framed) document.documentElement.style.background = '#191919';
+
+const $ = id => document.getElementById(id);
+const PAL = { cream:'#fff4d6', sky:'#bfe6e8', teal:'#4fa3c7', mag:'#c25aa8', acc:'#ff5b2e', star:'#ffffff', ink:'#16121f' };
+const HX = h => [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
+const C = { oceanHi:HX('#9fe3ee'), ocean:HX('#5fbfd8'), oceanD:HX('#3584ad'), sand:HX('#f1df9c'), grass:HX('#7ccf6a'), forest:HX('#3f9a57'), peak:HX('#e9f3e4'),
+            cloud:HX('#fff6dc'), cloudD:HX('#d9d2b4'), night:HX('#1c2350'), atmo:HX('#b8f0ff') };
+const mixc = (a, b, t) => [a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t];
+const rgb = c => `rgb(${c[0]|0},${c[1]|0},${c[2]|0})`;
+const KINDS = ['planet','gas','moon','rock','comet','star','ringed','binary'];
+const PALS = { cream:['#fff4d6','#d8cba0'], coral:['#ff9a72','#c8614a'], rose:['#e48ad0','#a5539a'], teal:['#5fb6d8','#33799e'], lime:['#a6e36b','#5f9f3e'],
+  gold:['#ffd166','#c99a33'], lavender:['#b9a3ec','#7c66b5'], mint:['#86e6c9','#3fa58c'], rust:['#d0744a','#8f4329'], ice:['#e3f7ff','#9fc8dc'], plum:['#9b5a8e','#5e3157'], sand:['#f1df9c','#b9a462'] };
+const PALK = Object.keys(PALS);
+const SIZE = { planet:[3,5], gas:[4,6], moon:[2,3], rock:[2,4], comet:[1,2], star:[1,2], ringed:[3,4], binary:[2,2] };
+const PATHS = { planet:['orbit','tilt','eight'], gas:['orbit','tilt'], moon:['orbit','eight','tilt'], rock:['drift','orbit','tilt','eight'], comet:['comet'], star:['drift'], ringed:['orbit','tilt'], binary:['drift','orbit'] };
+function design(existing){
+  const used = new Set(existing.filter(t => t.d).map(t => t.d.kind + ':' + t.d.pal));
+  const usedKinds = existing.filter(t => t.d).map(t => t.d.kind);
+  let kind, pal, tries = 0;
+  do {
+    // on favorise les types les moins présents, pour varier au maximum
+    const counts = KINDS.map(k => usedKinds.filter(x => x === k).length), min = Math.min(...counts);
+    const pool = KINDS.filter((k, i) => counts[i] <= min + (tries > 20 ? 9 : 0));
+    kind = pool[Math.floor(Math.random() * pool.length)];
+    pal = PALK[Math.floor(Math.random() * PALK.length)];
+  } while (used.has(kind + ':' + pal) && ++tries < 200);
+  const [a, b] = SIZE[kind], paths = PATHS[kind];
+  return { kind, pal, size: a + Math.floor(Math.random() * (b - a + 1)), path: paths[Math.floor(Math.random() * paths.length)],
+           k: +(.72 + Math.random() * .45).toFixed(3), sp: +((.08 + Math.random() * .16) * (Math.random() < .25 ? -1 : 1)).toFixed(3),
+           ph: +(Math.random() * 6.283).toFixed(3), tilt: +(Math.random() * 1.4 - .7).toFixed(3), e: +(.55 + Math.random() * .3).toFixed(3) };
+}
+function ensureDesigns(){ let changed = false; tasks.forEach((t, i) => { if (!t.d){ t.d = design(tasks.slice(0, i)); changed = true; } }); return changed; }
+
+// ================================================================
+//  Données + synchronisation
+// ================================================================
+const LS = { get(k){ try { return JSON.parse(localStorage.getItem('todo_' + k)); } catch(e) { return null; } },
+             set(k,v){ try { localStorage.setItem('todo_' + k, JSON.stringify(v)); } catch(e) {} } };
+let tasks = LS.get('tasks') || [], updated = LS.get('updated') || 0, pending = false, saveT = null;
+if (DEMO) tasks = ['Rappeler le labo pour les scans', 'Envoyer la facture Levi\'s', 'Moodboard James Loup', 'Racheter des piles AA', 'Mail Stencia', 'Backup LaCie', 'Scans Cambodia'].map((t,i) => ({ id:'d'+i, t }));
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+
+function setSync(s){ const e = $('sync'); e.className = s; e.title = s === 'wait' ? 'Enregistrement…' : s === 'off' ? 'Hors ligne : enregistré sur cet appareil' : API ? 'Synchronisé' : 'Enregistré sur cet appareil'; }
+function persist(){
+  updated = Date.now(); LS.set('tasks', tasks); LS.set('updated', updated);
+  if (!API || DEMO) return;
+  pending = true; setSync('wait'); clearTimeout(saveT);
+  saveT = setTimeout(async () => {
+    try { const r = await fetch(API + '/tasks?key=' + encodeURIComponent(KEY), { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tasks, updated }) });
+      if (!r.ok) throw 0; pending = false; setSync(''); }
+    catch(e){ setSync('off'); setTimeout(() => pending && persist(), 8000); }
+  }, 900);
+}
+async function pull(){
+  if (!API || DEMO || pending) return;
+  try {
+    const r = await fetch(API + '/tasks?key=' + encodeURIComponent(KEY), { cache:'no-store' }); if (!r.ok) throw r.status;
+    const j = await r.json(); setSync('');
+    if ((j.updated || 0) > updated){
+      const before = new Set(tasks.map(t => t.id)), after = new Set((j.tasks||[]).map(t => t.id));
+      tasks.filter(t => !after.has(t.id)).forEach(t => explodeTask(t.id));
+      tasks = j.tasks || []; updated = j.updated; if (ensureDesigns()) persist(); else { LS.set('tasks', tasks); LS.set('updated', updated); }
+      tasks.forEach(t => { if (!before.has(t.id)) launch(t.id); });
+      render();
+    }
+  } catch(e){ setSync(e === 403 ? 'off' : 'off'); if (e === 403) toast('Clé refusée : vérifie le lien du widget'); }
+}
+
+// ================================================================
+//  Liste
+// ================================================================
+let hlId = null;
+function render(){
+  const L = $('list');
+  $('count').textContent = tasks.length ? tasks.length + (tasks.length > 1 ? ' tâches' : ' tâche') : '';
+  if (!tasks.length){ L.innerHTML = '<div class="empty">Rien en orbite.<br>Tape une tâche ou clique sur la planète.</div>'; return; }
+  const have = new Map([...L.querySelectorAll('.it')].map(e => [e.dataset.id, e]));
+  L.querySelector('.empty')?.remove();
+  tasks.forEach((t, i) => {
+    let e = have.get(t.id);
+    if (!e){
+      e = document.createElement('div'); e.className = 'it'; e.dataset.id = t.id;
+      e.innerHTML = `<span class="box" title="Fait"></span><span class="tx"></span><span class="dot"></span>`;
+      e.querySelector('.box').onclick = () => complete(t.id);
+      const tx = e.querySelector('.tx');
+      tx.ondblclick = () => { tx.contentEditable = 'true'; tx.focus(); document.getSelection().selectAllChildren(tx); };
+      tx.onkeydown = ev => { if (ev.key === 'Enter'){ ev.preventDefault(); tx.blur(); } if (ev.key === 'Escape'){ tx.textContent = t.t; tx.blur(); } };
+      tx.onblur = () => { if (tx.contentEditable !== 'true') return; tx.contentEditable = 'false'; const v = tx.textContent.trim(); const task = tasks.find(x => x.id === t.id);
+        if (task && v && v !== task.t){ task.t = v; persist(); burst(t.id, 8); } else tx.textContent = task ? task.t : ''; };
+      e.onmouseenter = () => hlId = t.id; e.onmouseleave = () => hlId = null;
+      L.appendChild(e);
+    }
+    if (e.querySelector('.tx').contentEditable !== 'true') e.querySelector('.tx').textContent = t.t;
+    e.querySelector('.dot').style.background = t.d ? PALS[t.d.pal][0] : '#fff4d6';
+    if (L.children[i] !== e) L.insertBefore(e, L.children[i] || null);
+    have.delete(t.id);
+  });
+  have.forEach(e => { if (!e.classList.contains('out')) e.remove(); });
+}
+function add(text){
+  text = text.trim(); if (!text) return;
+  const t = { id: uid(), t: text, d: design(tasks) };
+  tasks.push(t); persist(); render(); launch(t.id);
+  const e = $('list').querySelector(`[data-id="${t.id}"]`); e && e.scrollIntoView({block:'nearest'});
+}
+let lastRemoved = null, toastT;
+function complete(id){
+  const i = tasks.findIndex(t => t.id === id); if (i < 0) return;
+  const e = $('list').querySelector(`[data-id="${id}"]`);
+  e.classList.add('done'); explodeTask(id);
+  lastRemoved = { task: tasks[i], index: i };
+  setTimeout(() => { e.classList.add('out'); setTimeout(() => { tasks = tasks.filter(t => t.id !== id); persist(); e.remove(); render(); }, 480); }, 450);
+  toast('Tâche faite ✦', true);
+}
+function undo(){ if (!lastRemoved) return; const { task, index } = lastRemoved; lastRemoved = null;
+  setTimeout(() => { if (tasks.find(t => t.id === task.id)) return; tasks.splice(Math.min(index, tasks.length), 0, task); persist(); render(); launch(task.id); }, 950); $('toast').classList.remove('show'); }
+function toast(m, withUndo){ const t = $('toast'); t.innerHTML = m + (withUndo ? '<button id="undo">Annuler</button>' : ''); t.classList.add('show');
+  if (withUndo) $('undo').onclick = undo; clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 4000); }
+$('inp').addEventListener('keydown', e => { if (e.key === 'Enter'){ add(e.target.value); e.target.value = ''; } });
+let selId = null;
+$('sky').onclick = () => { if (hlId){ selId = selId === hlId ? null : hlId; const e = $('list').querySelector(`[data-id="${selId}"]`); e && e.scrollIntoView({block:'nearest', behavior:'smooth'}); } else { selId = null; $('inp').focus(); } };
+
+// ================================================================
+//  Planète pixel art
+// ================================================================
+const cv = $('c'), cx = cv.getContext('2d');
+let LW = 160, LH = 110, CX = 80, CY = 55, R = 26, RX = 56, RY = 16, TILT = -.22;
+const orb = new Map();          // état d'animation de chaque objet en orbite
+let parts = [], stars = [], dust = [], pulse = 0;
+function rnd(a, b){ return a + Math.random()*(b-a); }
+function hash(s){ let h = 2166136261; for (const c of s) h = Math.imul(h ^ c.charCodeAt(0), 16777619); return (h >>> 0) / 4294967295; }
+
+function resize(){
+  const W = $('w').clientWidth, H = $('w').clientHeight;
+  $('w').classList.toggle('wide', W / H > 1.25);
+  document.documentElement.style.setProperty('--fs', Math.max(11, Math.min(15, Math.min(W, H) / 22)) + 'px');
+  const box = $('sky'), bw = box.clientWidth, bh = box.clientHeight;
+  LH = 76; LW = Math.max(76, Math.round(LH * bw / Math.max(1, bh)));
+  cv.width = LW; cv.height = LH;
+  CX = LW / 2; CY = LH / 2 + 2;
+  R = Math.round(Math.min(LH * .26, LW * .19));
+  RX = Math.min(LW * .46, R * 2.3); RY = RX * .3;
+  stars = Array.from({ length: Math.round(LW * LH / 90) }, () => [Math.floor(rnd(0, LW)), Math.floor(rnd(0, LH)), rnd(0, 6.3), Math.random() < .12]);
+  dust = Array.from({ length: 200 }, (_, i) => ({ a: rnd(0, 6.283), r: rnd(.88, 1.12), c: [PAL.teal, PAL.mag, '#7fd0ef'][i % 3], s: rnd(.6, 1.4), inner: i > 130 }));
+}
+addEventListener('resize', resize);
+
+// bruit simple pour les nuages
+const NP = Array.from({ length: 512 }, () => Math.random());
+function n2(x, y){ const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi, u = xf*xf*(3-2*xf), v = yf*yf*(3-2*yf);
+  const h = (a, b) => NP[((a * 57 + b * 131) & 511 + 512) % 512];
+  return (h(xi,yi)*(1-u) + h(xi+1,yi)*u)*(1-v) + (h(xi,yi+1)*(1-u) + h(xi+1,yi+1)*u)*v; }
+function cloud(lon, lat){ return n2(lon*2.2, lat*2.6) * .65 + n2(lon*5 + 9, lat*5) * .35; }
+
+function px(x, y, c, a = 1){ cx.globalAlpha = a; cx.fillStyle = c; cx.fillRect(Math.round(x), Math.round(y), 1, 1); }
+let level = 0;                                   // 0 = océan vide → 1 = planète pleine de vie
+const BAY = [0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5];
+function drawPlanet(t){
+  const n = tasks.length, target = Math.min(1, n / 8);
+  level += (target - level) * .03;
+  const rot = t * .11, r = R * (1 + pulse * .07), R2 = Math.ceil(r + 3);
+  const landThr = 1.02 - .5 * level;              // plus de tâches = plus de terres
+  const cloudThr = .7 - .08 * level;
+  // halo d'atmosphère qui grandit avec la vie de la planète
+  const halo = .5 + level * 1.5;
+  for (let y = -R2; y <= R2; y++) for (let x = -R2; x <= R2; x++){
+    const d = Math.sqrt(x*x + y*y);
+    if (d > r && d <= r + halo){ const lit = (-x - y) / (d || 1);
+      if (lit > -.3 && (BAY[((y+64)&3)*4 + ((x+64)&3)] / 16) < .55 - (d - r) / (halo + .5) * .5) px(CX + x, CY + y, rgb(C.atmo), .35 + .25*lit); continue; }
+    if (d > r + 1.6) continue;
+    const inside = d <= r;
+    const nx = x / r, ny = y / r, nz = Math.sqrt(Math.max(0, 1 - nx*nx - ny*ny));
+    const lon = Math.atan2(nx, nz) + rot, lat = Math.asin(Math.max(-1, Math.min(1, ny)));
+    const cl = cloud(lon + 10, lat + 3) - (cloudThr - .6);
+    const light = -nx * .55 - ny * .45 + nz * .7;
+    const dith = BAY[((y+64)&3)*4 + ((x+64)&3)] / 16 - .5;
+    if (inside){
+      const h = n2(lon*1.6 + 40, lat*1.9 + 7) * .7 + n2(lon*4 + 3, lat*4 + 11) * .3;
+      let c;
+      if (cl > .6) c = light + dith*.3 > -.05 ? C.cloud : C.cloudD;
+      else if (h > landThr + .2) c = C.peak;
+      else if (h > landThr + .09) c = C.forest;
+      else if (h > landThr + .02) c = C.grass;
+      else if (h > landThr) c = C.sand;
+      else c = light + dith*.25 > .35 ? C.oceanHi : light + dith*.25 > -.05 ? C.ocean : C.oceanD;
+      // côté nuit, avec trame pixel
+      const nightK = Math.max(0, Math.min(1, (-.1 - light) * 2.2 + dith * .5));
+      c = mixc(c, C.night, nightK * .75);
+      // petites lumières de villes la nuit quand la planète est bien vivante
+      if (nightK > .5 && level > .6 && h > landThr + .02 && n2(lon*9, lat*9) > .72 && Math.sin(t*2 + lon*20) > -.3) c = HX('#ffd27a');
+      px(CX + x, CY + y, rgb(c));
+      if (light > .82 && Math.abs(x + r*.35) < 1.2 && Math.abs(y + r*.38) < 1.2) px(CX + x, CY + y, '#ffffff', .8);   // reflet
+    } else if (cl > .63 && nz < .35){
+      px(CX + x, CY + y, rgb(light > -.05 ? C.cloud : C.cloudD));
+    }
+  }
+  cx.globalAlpha = 1;
+}
+function orbitPos(a, k = 1){
+  const ex = Math.cos(a) * RX * k, ey = Math.sin(a) * RY * k;
+  return { x: CX + ex * Math.cos(TILT) - ey * Math.sin(TILT), y: CY + ex * Math.sin(TILT) + ey * Math.cos(TILT), front: Math.sin(a) > 0 };
+}
+function disc(x0, y0, r, f){ for (let y = -r; y <= r; y++){ const w = Math.floor(Math.sqrt(r*r - y*y + r*.5)); for (let x = -w; x <= w; x++) f(Math.round(x0 + x), Math.round(y0 + y), x, y); } }
+function ink(x0, y0, r){ cx.fillStyle = PAL.ink; cx.globalAlpha = .92; disc(x0, y0, r + 1, (X, Y) => cx.fillRect(X, Y, 1, 1)); cx.globalAlpha = 1; }
+function body(d, x, y, t, o){
+  const [c1, c2] = PALS[d.pal] || PALS.cream, r = d.size;
+  const shade = (X, Y, dx, dy) => (dx + dy > r * .45) ? c2 : c1;
+  switch (d.kind){
+    case 'planet':
+      ink(x, y, r); disc(x, y, r, (X, Y, dx, dy) => px(X, Y, shade(X, Y, dx, dy)));
+      disc(x, y, r, (X, Y, dx, dy) => { if (Math.abs(dy - Math.round(Math.sin(dx*.9 + d.ph)*1)) === 0 && r > 3) px(X, Y, c2, .6); });
+      px(x - Math.round(r*.4), y - Math.round(r*.45), '#ffffff', .85); break;
+    case 'gas':
+      ink(x, y, r); disc(x, y, r, (X, Y, dx, dy) => { const band = Math.floor((dy + r + Math.sin(dx*.6 + t*.8 + d.ph)*.6) / 2) % 2; px(X, Y, band ? c2 : c1); if (dx + dy > r*.6) px(X, Y, '#16121f', .25); });
+      px(x - Math.round(r*.4), y - Math.round(r*.5), '#ffffff', .7); break;
+    case 'ringed': {
+      const ring = (front) => { for (let i = -r - 3; i <= r + 3; i++){ const yy = Math.round(i * .28); if ((yy >= 0) === front) { px(x + i, y + yy, PAL.ink, .9); px(x + i, y + yy - 1, c1, front ? 1 : .55); } } };
+      ring(false); ink(x, y, r); disc(x, y, r, (X, Y, dx, dy) => px(X, Y, shade(X, Y, dx, dy))); ring(true); break; }
+    case 'moon':
+      ink(x, y, r); disc(x, y, r, (X, Y, dx, dy) => px(X, Y, shade(X, Y, dx, dy)));
+      px(x + 1, y - 1, c2); if (r > 2) px(x - 1, y + 1, c2); break;
+    case 'rock': {
+      const rot = t * d.sp * 3 + d.ph, pts = [];
+      for (let yy = -r - 1; yy <= r + 1; yy++) for (let xx = -r - 1; xx <= r + 1; xx++){
+        const ang = Math.atan2(yy, xx) - rot, rr = r * (.75 + .3 * Math.sin(ang * 3 + d.ph) + .15 * Math.sin(ang * 5));
+        if (Math.hypot(xx, yy) <= rr) pts.push([xx, yy]); }
+      cx.fillStyle = PAL.ink; cx.globalAlpha = .9; pts.forEach(([a, b]) => cx.fillRect(Math.round(x + a) - 1, Math.round(y + b), 3, 1)); pts.forEach(([a, b]) => cx.fillRect(Math.round(x + a), Math.round(y + b) - 1, 1, 3)); cx.globalAlpha = 1;
+      pts.forEach(([a, b]) => px(x + a, y + b, (a + b > 0) ? c2 : c1));
+      if (r > 2) px(x + Math.round(Math.cos(rot)), y + Math.round(Math.sin(rot)), c2); break; }
+    case 'comet': {
+      const ang = Math.atan2(y - CY, x - CX), L = 7 + d.size * 3;
+      for (let i = L; i >= 1; i--){ const tx = x + Math.cos(ang) * i, ty = y + Math.sin(ang) * i; px(tx, ty, i < 3 ? '#ffffff' : c1, (1 - i / L) * .9);
+        if (i % 3 === 0) px(tx + Math.sin(ang), ty - Math.cos(ang), c1, (1 - i / L) * .5); }
+      ink(x, y, d.size - 1); disc(x, y, d.size - 1, (X, Y) => px(X, Y, '#ffffff')); px(x, y, c1); break; }
+    case 'star': {
+      const tw = .55 + .45 * Math.sin(t * 4 + d.ph), L = d.size + 1 + Math.round(tw);
+      for (let i = 1; i <= L; i++){ const a2 = (1 - i / (L + 1)) * tw; px(x + i, y, c1, a2); px(x - i, y, c1, a2); px(x, y + i, c1, a2); px(x, y - i, c1, a2); }
+      px(x, y, '#ffffff'); break; }
+    case 'binary': {
+      const a2 = t * 1.6 + d.ph, ox = Math.round(Math.cos(a2) * 3), oy = Math.round(Math.sin(a2) * 1.5);
+      const p2 = PALS[PALK[(PALK.indexOf(d.pal) + 4) % PALK.length]];
+      const one = (X, Y, rr, c) => { ink(X, Y, rr); disc(X, Y, rr, (A, B) => px(A, B, c)); };
+      if (oy < 0){ one(x + ox, y + oy, 1, p2[0]); one(x - ox, y - oy, 2, c1); } else { one(x - ox, y - oy, 2, c1); one(x + ox, y + oy, 1, p2[0]); } break; }
+  }
+  cx.globalAlpha = 1;
+}
+function selector(x, y, r, t){ // sélecteur orange : 4 coins qui respirent
+  const g = r + 3 + Math.round((Math.sin(t*6) + 1) * .7), L = 2, X0 = Math.round(x) - g, Y0 = Math.round(y) - g, X1 = Math.round(x) + g, Y1 = Math.round(y) + g;
+  cx.fillStyle = PAL.acc; cx.globalAlpha = 1;
+  for (const [a, b, sx, sy] of [[X0,Y0,1,1],[X1,Y0,-1,1],[X0,Y1,1,-1],[X1,Y1,-1,-1]]){
+    cx.fillRect(Math.min(a, a + sx*L), b, L + 1, 1); cx.fillRect(a, Math.min(b, b + sy*L), 1, L + 1); }
+}
+function pathPos(d, t, grow){
+  const k = d.k * (.5 + .5 * grow), a = d.ph + t * d.sp;
+  if (d.path === 'eight'){ const x = CX + Math.sin(a) * RX * .95 * k, y = CY + Math.sin(2*a) * RY * 1.5 * k; return { x, y, front: Math.cos(a) > 0 }; }
+  if (d.path === 'drift'){ const x = CX + Math.sin(a * .7) * LW * .43 * (.6 + .4*grow), y = CY + Math.sin(a * 1.13 + d.ph) * LH * .36 * (.6 + .4*grow); return { x, y, front: Math.sin(a * .5 + d.ph) > -.3 }; }
+  if (d.path === 'comet'){ const e = d.e, b2 = Math.sqrt(1 - e*e), ex = (Math.cos(a) + e) * RX * .75 * k, ey = Math.sin(a) * RX * .75 * b2 * k * .7, rot = d.tilt * 1.6;
+    return { x: CX + ex * Math.cos(rot) - ey * Math.sin(rot), y: CY + ex * Math.sin(rot) * .45 + ey * Math.cos(rot) * .7, front: Math.sin(a) > 0 }; }
+  const tilt = d.path === 'tilt' ? d.tilt : TILT, ry = d.path === 'tilt' ? RX * (.42 + Math.abs(d.tilt) * .2) : RY;
+  const ex = Math.cos(a) * RX * k, ey = Math.sin(a) * ry * k;
+  return { x: CX + ex * Math.cos(tilt) - ey * Math.sin(tilt), y: CY + ex * Math.sin(tilt) + ey * Math.cos(tilt), front: Math.sin(a) > 0 };
+}
+function launch(id){ const o = orb.get(id) || {}; o.born = performance.now()/1000; orb.set(id, o); pulse = 1; burst(id, 6, true); }
+function burst(id, n, fromPlanet){
+  const p = fromPlanet ? { x: CX, y: CY - R } : (orb.get(id) && orb.get(id).pos) || { x: CX, y: CY };
+  for (let i = 0; i < n; i++){ const a = rnd(0, 6.283), v = rnd(8, 26);
+    parts.push({ x: p.x, y: p.y, vx: Math.cos(a)*v, vy: Math.sin(a)*v - (fromPlanet ? 10 : 0), life: 1, c: [PAL.cream, PAL.sky, PAL.mag, PAL.teal][i % 4] }); }
+}
+function explodeTask(id){
+  const o = orb.get(id); const p = (o && o.pos) || { x: CX, y: CY };
+  for (let i = 0; i < 26; i++){ const a = rnd(0, 6.283), v = rnd(12, 46);
+    parts.push({ x: p.x, y: p.y, vx: Math.cos(a)*v, vy: Math.sin(a)*v, life: 1, c: [PAL.cream, PAL.sky, PAL.mag, PAL.teal, '#ffffff'][i % 5], star: i % 6 === 0 }); }
+  orb.delete(id); pulse = .6;
+}
+
+let last = performance.now()/1000;
+function frame(){
+  requestAnimationFrame(frame);
+  const now = performance.now()/1000, dt = Math.min(.05, now - last); if (dt < 1/40) return; last = now;
+  const t = now;
+  cx.clearRect(0, 0, LW, LH); pulse = Math.max(0, pulse - dt * 1.6);
+  // étoiles
+  for (const [x, y, p, big] of stars){ const a = .25 + .55 * Math.max(0, Math.sin(t * 1.3 + p * 5)); px(x, y, PAL.star, a);
+    if (big && a > .7){ px(x-1, y, PAL.star, a*.4); px(x+1, y, PAL.star, a*.4); px(x, y-1, PAL.star, a*.4); px(x, y+1, PAL.star, a*.4); } }
+  // positions des objets
+  const n = tasks.length;
+  const objs = tasks.filter(task => task.d).map(task => {
+    let o = orb.get(task.id); if (!o){ o = {}; orb.set(task.id, o); }
+    const age = o.born ? (t - o.born) : 99, g = age < 1.4 ? 1 - Math.pow(1 - age/1.4, 3) : 1;
+    const p = pathPos(task.d, t, 1);
+    const start = { x: CX, y: CY - R };
+    o.pos = { x: start.x + (p.x - start.x) * g, y: start.y + (p.y - start.y) * g };
+    o.front = p.front || age < 1.4; o.r = task.d.size;
+    if (age < 1.4 && Math.random() < .6) parts.push({ x: o.pos.x, y: o.pos.y, vx: rnd(-4,4), vy: rnd(2,8), life: .6, c: PALS[task.d.pal][0] });
+    return { task, o };
+  });
+  const nDust = Math.min(dust.length, 30 + n * 14);
+  const dustDraw = front => { for (let i = 0; i < nDust; i++){ const d = dust[i], a = d.a + t * .05 * d.s, p = orbitPos(a, d.r * (d.inner ? .78 : 1)); if (p.front === front) px(p.x, p.y + Math.sin(t + d.a*3) * .6, d.c, .9); } };
+  const isSel = id => id === hlId || id === selId;
+  const draw = list => list.sort((A, B) => A.o.pos.y - B.o.pos.y).forEach(({ task, o }) => { body(task.d, Math.round(o.pos.x), Math.round(o.pos.y), t, o); if (isSel(task.id)) selector(o.pos.x, o.pos.y, task.d.size, t); });
+  dustDraw(false);
+  draw(objs.filter(x => !x.o.front));
+  drawPlanet(t);
+  dustDraw(true);
+  draw(objs.filter(x => x.o.front));
+  // particules
+  for (let i = parts.length - 1; i >= 0; i--){ const p = parts[i];
+    p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= .96; p.vy = p.vy * .96 + 6 * dt; p.life -= dt * 1.1;
+    if (p.life <= 0){ parts.splice(i, 1); continue; }
+    px(p.x, p.y, p.c, Math.min(1, p.life * 1.4));
+    if (p.star && p.life > .4){ px(p.x - 1, p.y, p.c, p.life * .6); px(p.x + 1, p.y, p.c, p.life * .6); px(p.x, p.y - 1, p.c, p.life * .6); px(p.x, p.y + 1, p.c, p.life * .6); }
+  }
+  cx.globalAlpha = 1;
+  // survol d'un objet dans l'orbite → surligne la ligne correspondante
+  document.querySelectorAll('.it').forEach(e => e.classList.toggle('hl', e.dataset.id === hlId || e.dataset.id === selId));
+}
+$('sky').addEventListener('pointermove', e => {
+  const r = cv.getBoundingClientRect(), x = (e.clientX - r.left) / r.width * LW, y = (e.clientY - r.top) / r.height * LH;
+  let best = null, bd = 5;
+  orb.forEach((o, id) => { if (!o.pos) return; const d = Math.hypot(o.pos.x - x, o.pos.y - y) - (o.r || 2); if (d < bd){ bd = d; best = id; } });
+  hlId = best; $('sky').style.cursor = best ? 'pointer' : 'copy';
+  $('sky').title = best ? (tasks.find(t => t.id === best) || {}).t || '' : 'Clique pour ajouter une tâche';
+});
+$('sky').addEventListener('pointerleave', () => hlId = null);
+
+// ================================================================
+//  Démarrage
+// ================================================================
+const TITLE = Q.get('title');
+function updTitle(){ const h = new Date().getHours(); $('ttl').textContent = TITLE ? TITLE.toUpperCase() : (h >= 18 || h < 4) ? 'DEMAIN' : 'AUJOURD\'HUI'; }
+updTitle(); setInterval(updTitle, 60000);
+if (ensureDesigns() && !DEMO) persist();
+resize(); render(); setSync(API ? '' : 'local');
+if (!API && !DEMO) $('sync').title = 'Enregistré sur cet appareil (ajoute ?api=… pour synchroniser)';
+if (DEMO) tasks.forEach((t, i) => setTimeout(() => launch(t.id), 300 + i * 250));
+pull(); setInterval(pull, 15000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) pull(); });
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
