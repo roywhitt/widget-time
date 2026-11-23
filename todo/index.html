@@ -6,11 +6,11 @@
 <meta name="color-scheme" content="dark">
 <title>Demain</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-:root{color-scheme:dark;--cream:#fff4d6;--sky:#bfe6e8;--teal:#4fa3c7;--mag:#c25aa8;--acc:#ff5b2e;--mute:rgba(244,239,200,.45);--ln:rgba(244,239,200,.14);--fs:13px}
+:root{color-scheme:dark;--fg:#f2efe9;--cream:#f2efe9;--sky:#bfe6e8;--teal:#4fa3c7;--mag:#c25aa8;--acc:#ff5b2e;--mute:rgba(242,239,233,.48);--ln:rgba(242,239,233,.14);--fs:13px}
 *{box-sizing:border-box}
-html,body{margin:0;width:100%;height:100%;background:transparent;overflow:hidden;color:var(--cream);font-family:"Pixelify Sans",ui-monospace,monospace;font-size:var(--fs);-webkit-font-smoothing:none}
+html,body{margin:0;width:100%;height:100%;background:transparent;overflow:hidden;color:var(--fg);font-family:"Inter Tight","Helvetica Neue",Arial,sans-serif;font-size:var(--fs);-webkit-font-smoothing:antialiased}
 button,input{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0}
 #w{position:absolute;inset:0;display:flex;flex-direction:column}
 #w.wide{flex-direction:row}
@@ -19,16 +19,16 @@ button,input{font:inherit;color:inherit;background:none;border:0;padding:0;margi
 #sky canvas{position:absolute;inset:0;width:100%;height:100%;image-rendering:pixelated}
 #side{flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;padding:.2em .9em .7em}
 #head{display:flex;align-items:baseline;gap:.6em;padding:.2em 0 .45em}
-#head b{font-weight:600;letter-spacing:.06em;color:var(--sky)}
-#count{color:var(--mute);font-size:.85em}
+#head b{font-size:.78em;font-weight:600;letter-spacing:.14em;color:var(--fg)}
+#count{color:var(--mute);font-size:.78em;letter-spacing:.06em}
 #sync{margin-left:auto;width:.45em;height:.45em;background:var(--teal);image-rendering:pixelated;transition:background .3s}
 #sync.wait{background:var(--cream);animation:blink .6s steps(2) infinite}
 #sync.off{background:var(--mag)}
 @keyframes blink{50%{opacity:.2}}
-#add{display:flex;align-items:center;gap:.6em;border-bottom:1px dashed var(--ln);padding:.35em 0 .5em}
-#add .plus{color:var(--sky);font-weight:600;transition:transform .25s steps(3)}
-#add:focus-within .plus{transform:rotate(90deg);color:var(--cream)}
-#inp{flex:1;min-width:0;outline:none;caret-color:var(--sky)}
+#add{display:flex;align-items:center;gap:.6em;border-bottom:1px solid var(--ln);padding:.35em 0 .5em}
+#add .plus{color:var(--mute);font-weight:500;transition:transform .25s steps(3)}
+#add:focus-within .plus{transform:rotate(90deg);color:var(--acc)}
+#inp{flex:1;min-width:0;outline:none;caret-color:var(--acc)}
 #inp::placeholder{color:var(--mute)}
 #list{flex:1;overflow-y:auto;scrollbar-width:none;padding-top:.25em}
 #list::-webkit-scrollbar{display:none}
@@ -37,13 +37,13 @@ button,input{font:inherit;color:inherit;background:none;border:0;padding:0;margi
 .it:hover{background:rgba(191,230,232,.06)}
 .it.hl{background:rgba(255,91,46,.09);box-shadow:inset 3px 0 0 var(--acc)}
 .it.hl .tx{color:#fff}
-.box{flex:none;width:.95em;height:.95em;margin-top:.12em;border:2px solid var(--cream);position:relative;cursor:pointer;transition:border-color .15s}
+.box{flex:none;width:.9em;height:.9em;margin-top:.18em;border:1.5px solid var(--fg);position:relative;cursor:pointer;transition:border-color .15s}
 .box::after{content:"";position:absolute;inset:2px;background:var(--acc);transform:scale(0);transition:transform .2s steps(3)}
 .box:hover::after{transform:scale(.6)}
-.it.done .box{border-color:var(--sky)}
-.it.done .box::after{transform:scale(1);background:var(--sky)}
-.tx{flex:1;min-width:0;line-height:1.25;word-break:break-word;outline:none;position:relative}
-.tx::after{content:"";position:absolute;left:0;top:55%;height:2px;width:0;background:var(--sky);transition:width .35s steps(6)}
+.it.done .box{border-color:var(--acc)}
+.it.done .box::after{transform:scale(1);background:var(--acc)}
+.tx{flex:1;min-width:0;line-height:1.3;word-break:break-word;outline:none;position:relative}
+.tx::after{content:"";position:absolute;left:0;top:55%;height:1px;width:0;background:var(--fg);transition:width .35s steps(6)}
 .it.done .tx{color:var(--mute)}
 .it.done .tx::after{width:100%}
 .it.out{animation:out .5s steps(5) forwards}
@@ -88,7 +88,7 @@ const KINDS = ['planet','gas','moon','rock','comet','star','ringed','binary'];
 const PALS = { cream:['#fff4d6','#d8cba0'], coral:['#ff9a72','#c8614a'], rose:['#e48ad0','#a5539a'], teal:['#5fb6d8','#33799e'], lime:['#a6e36b','#5f9f3e'],
   gold:['#ffd166','#c99a33'], lavender:['#b9a3ec','#7c66b5'], mint:['#86e6c9','#3fa58c'], rust:['#d0744a','#8f4329'], ice:['#e3f7ff','#9fc8dc'], plum:['#9b5a8e','#5e3157'], sand:['#f1df9c','#b9a462'] };
 const PALK = Object.keys(PALS);
-const SIZE = { planet:[3,5], gas:[4,6], moon:[2,3], rock:[2,4], comet:[1,2], star:[1,2], ringed:[3,4], binary:[2,2] };
+const SIZE = { planet:[2,4], gas:[3,4], moon:[2,3], rock:[2,3], comet:[1,2], star:[1,2], ringed:[2,3], binary:[2,2] };
 const PATHS = { planet:['orbit','tilt','eight'], gas:['orbit','tilt'], moon:['orbit','eight','tilt'], rock:['drift','orbit','tilt','eight'], comet:['comet'], star:['drift'], ringed:['orbit','tilt'], binary:['drift','orbit'] };
 function design(existing){
   const used = new Set(existing.filter(t => t.d).map(t => t.d.kind + ':' + t.d.pal));
@@ -106,7 +106,8 @@ function design(existing){
            k: +(.72 + Math.random() * .45).toFixed(3), sp: +((.08 + Math.random() * .16) * (Math.random() < .25 ? -1 : 1)).toFixed(3),
            ph: +(Math.random() * 6.283).toFixed(3), tilt: +(Math.random() * 1.4 - .7).toFixed(3), e: +(.55 + Math.random() * .3).toFixed(3) };
 }
-function ensureDesigns(){ let changed = false; tasks.forEach((t, i) => { if (!t.d){ t.d = design(tasks.slice(0, i)); changed = true; } }); return changed; }
+function ensureDesigns(){ let changed = false; tasks.forEach((t, i) => { if (!t.d){ t.d = design(tasks.slice(0, i)); changed = true; }
+  else { const mx = (SIZE[t.d.kind] || [2,3])[1]; if (t.d.size > mx){ t.d.size = mx; changed = true; } } }); return changed; }
 
 // ================================================================
 //  Données + synchronisation
@@ -210,13 +211,13 @@ function hash(s){ let h = 2166136261; for (const c of s) h = Math.imul(h ^ c.cha
 function resize(){
   const W = $('w').clientWidth, H = $('w').clientHeight;
   $('w').classList.toggle('wide', W / H > 1.25);
-  document.documentElement.style.setProperty('--fs', Math.max(11, Math.min(15, Math.min(W, H) / 22)) + 'px');
+  document.documentElement.style.setProperty('--fs', Math.max(12, Math.min(15, Math.min(W, H) / 21)) + 'px');
   const box = $('sky'), bw = box.clientWidth, bh = box.clientHeight;
   LH = 76; LW = Math.max(76, Math.round(LH * bw / Math.max(1, bh)));
   cv.width = LW; cv.height = LH;
   CX = LW / 2; CY = LH / 2 + 2;
-  R = Math.round(Math.min(LH * .26, LW * .19));
-  RX = Math.min(LW * .46, R * 2.3); RY = RX * .3;
+  R = Math.round(Math.min(LH * .33, LW * .25));
+  RX = Math.min(LW * .47, R * 2.05); RY = RX * .3;
   stars = Array.from({ length: Math.round(LW * LH / 90) }, () => [Math.floor(rnd(0, LW)), Math.floor(rnd(0, LH)), rnd(0, 6.3), Math.random() < .12]);
   dust = Array.from({ length: 200 }, (_, i) => ({ a: rnd(0, 6.283), r: rnd(.88, 1.12), c: [PAL.teal, PAL.mag, '#7fd0ef'][i % 3], s: rnd(.6, 1.4), inner: i > 130 }));
 }
@@ -233,11 +234,11 @@ function px(x, y, c, a = 1){ cx.globalAlpha = a; cx.fillStyle = c; cx.fillRect(M
 let level = 0;                                   // 0 = océan vide → 1 = planète pleine de vie
 const BAY = [0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5];
 function drawPlanet(t){
-  const n = tasks.length, target = Math.min(1, n / 8);
+  const n = tasks.length, target = 1 - Math.pow(.58, n);   // 1 tâche ≈ 40 %, 2 ≈ 66 %, 3 ≈ 80 %, 4 ≈ 89 %
   level += (target - level) * .03;
   const rot = t * .11, r = R * (1 + pulse * .07), R2 = Math.ceil(r + 3);
-  const landThr = 1.02 - .5 * level;              // plus de tâches = plus de terres
-  const cloudThr = .7 - .08 * level;
+  const landThr = 1.0 - .64 * level;              // plus de tâches = plus de terres
+  const cloudThr = .7 + .05 * level;
   // halo d'atmosphère qui grandit avec la vie de la planète
   const halo = .5 + level * 1.5;
   for (let y = -R2; y <= R2; y++) for (let x = -R2; x <= R2; x++){
@@ -255,7 +256,7 @@ function drawPlanet(t){
       const h = n2(lon*1.6 + 40, lat*1.9 + 7) * .7 + n2(lon*4 + 3, lat*4 + 11) * .3;
       let c;
       if (cl > .6) c = light + dith*.3 > -.05 ? C.cloud : C.cloudD;
-      else if (h > landThr + .2) c = C.peak;
+      else if (h > landThr + .3) c = C.peak;
       else if (h > landThr + .09) c = C.forest;
       else if (h > landThr + .02) c = C.grass;
       else if (h > landThr) c = C.sand;
@@ -330,7 +331,7 @@ function selector(x, y, r, t){ // sélecteur orange : 4 coins qui respirent
 function pathPos(d, t, grow){
   const k = d.k * (.5 + .5 * grow), a = d.ph + t * d.sp;
   if (d.path === 'eight'){ const x = CX + Math.sin(a) * RX * .95 * k, y = CY + Math.sin(2*a) * RY * 1.5 * k; return { x, y, front: Math.cos(a) > 0 }; }
-  if (d.path === 'drift'){ const x = CX + Math.sin(a * .7) * LW * .43 * (.6 + .4*grow), y = CY + Math.sin(a * 1.13 + d.ph) * LH * .36 * (.6 + .4*grow); return { x, y, front: Math.sin(a * .5 + d.ph) > -.3 }; }
+  if (d.path === 'drift'){ const x = CX + Math.sin(a * .7) * LW * .44 * (.6 + .4*grow), y = CY + Math.sin(a * 1.13 + d.ph) * LH * .4 * (.6 + .4*grow); return { x, y, front: Math.sin(a * .5 + d.ph) > -.3 }; }
   if (d.path === 'comet'){ const e = d.e, b2 = Math.sqrt(1 - e*e), ex = (Math.cos(a) + e) * RX * .75 * k, ey = Math.sin(a) * RX * .75 * b2 * k * .7, rot = d.tilt * 1.6;
     return { x: CX + ex * Math.cos(rot) - ey * Math.sin(rot), y: CY + ex * Math.sin(rot) * .45 + ey * Math.cos(rot) * .7, front: Math.sin(a) > 0 }; }
   const tilt = d.path === 'tilt' ? d.tilt : TILT, ry = d.path === 'tilt' ? RX * (.42 + Math.abs(d.tilt) * .2) : RY;
