@@ -1,0 +1,771 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Piou</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:transparent}
+#w{position:fixed;inset:0;border-radius:14px;overflow:hidden;background:transparent;clip-path:inset(0 round 14px)}
+#c{position:absolute;inset:0;width:100%;height:100%;image-rendering:pixelated;cursor:default}
+#bubs{position:absolute;left:10px;top:10px;pointer-events:none}
+.bub{position:absolute;left:0;max-width:min(var(--bw),210px);transition:opacity .35s steps(4),transform .35s steps(4),top .4s steps(5),left .4s steps(5)!important;font-size:var(--fs,12px)!important;width:max-content;box-sizing:border-box;padding:7px 10px 8px;background:#fbfbf7;color:#2a1b16;
+  font:500 12px/1.38 "Inter Tight",system-ui,sans-serif;box-shadow:0 0 0 2px #2a1b16,3px 3px 0 2px rgba(20,12,10,.35);
+  opacity:0;transform:translateY(4px);transition:opacity .35s steps(4),transform .35s steps(4),top .4s steps(5);pointer-events:auto;cursor:default}
+.bub.on{opacity:1;transform:none}
+.bub.dim{opacity:.72}
+.bub[data-u]{cursor:pointer}
+.bub .join{display:inline-block;margin-top:6px;padding:3px 8px 4px;background:#ff5b2e;color:#fff;font-weight:700;font-size:11px;text-decoration:none;box-shadow:0 0 0 2px #2a1b16;cursor:pointer}
+.bub .join:hover{background:#2a1b16}
+.bub .join.now{animation:pulse 1s steps(2) infinite}
+@keyframes pulse{50%{background:#2a1b16}}
+.bub small{display:block;font-size:9.5px;font-weight:700;letter-spacing:.05em;color:#ff5b2e;margin-bottom:1px;text-transform:uppercase}
+.bub.tail::after{content:"";position:absolute;left:var(--tx);bottom:-8px;width:8px;height:8px;background:#fbfbf7;
+  box-shadow:2px 0 0 #2a1b16,-2px 0 0 #2a1b16,0 2px 0 #2a1b16;clip-path:polygon(-3px 0,11px 0,11px 11px,-3px 11px)}
+.bub.tail::before{content:"";position:absolute;left:calc(var(--tx) + 8px);bottom:-14px;width:5px;height:5px;background:#fbfbf7;box-shadow:0 0 0 2px #2a1b16}
+#msg{position:absolute;left:10px;bottom:8px;font:600 10px/1.3 "Inter Tight",system-ui,sans-serif;color:rgba(255,255,255,.75);text-shadow:0 1px 0 rgba(0,0,0,.5);pointer-events:none}
+</style>
+</head>
+<body>
+<div id="w"><canvas id="c"></canvas><div id="bubs"></div><div id="msg"></div></div>
+<script>
+(() => {
+'use strict';
+const Q = new URLSearchParams(location.search);
+const $ = id => document.getElementById(id);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const rnd = (a, b) => a + Math.random() * (b - a);
+const pick = a => a[Math.floor(Math.random() * a.length)];
+
+// ================= horloge (réglable pour tester : ?t=07:30&date=2026-12-24) =================
+const T0 = Date.now();
+function now(){
+  const d = new Date();
+  if (Q.get('date')){ const [y, m, dd] = Q.get('date').split('-').map(Number); d.setFullYear(y, m - 1, dd); }
+  if (Q.get('t')){ const [h, mi] = Q.get('t').split(':').map(Number); d.setHours(h, mi || 0, 0, 0); d.setTime(d.getTime() + (Date.now() - T0)); }
+  return d;
+}
+const mins = d => d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
+const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+const hm = d => `${d.getHours()}h${d.getMinutes() ? String(d.getMinutes()).padStart(2, '0') : ''}`;
+const JOURS = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+
+// ================= météo réelle (Open-Meteo, sans clé) — ?meteo=pluie|neige|orage|vent|soleil|brouillard|nuageux|canicule|froid =================
+const LAT = +(Q.get('lat') || 48.8566), LON = +(Q.get('lon') || 2.3522);
+let W = { code: 1, temp: 12, wind: 8, gust: 15, cloud: 30, rain: 0, sunrise: 7 * 60 + 40, sunset: 17 * 60 + 5, ok: false };
+const FORCE = {
+  pluie: { code: 63, cloud: 95, rain: 2, wind: 14, gust: 25 }, averse: { code: 81, cloud: 85, rain: 4, wind: 18, gust: 30 }, bruine: { code: 53, cloud: 90, rain: .4 },
+  neige: { code: 73, cloud: 90, temp: -1, wind: 8 }, orage: { code: 95, cloud: 100, rain: 6, wind: 30, gust: 55 }, vent: { code: 2, cloud: 45, wind: 42, gust: 70 },
+  soleil: { code: 0, cloud: 0, temp: 24, wind: 6, gust: 10 }, canicule: { code: 0, cloud: 0, temp: 33, wind: 4 }, froid: { code: 1, cloud: 15, temp: -4, wind: 6 },
+  brouillard: { code: 45, cloud: 100, wind: 3 }, nuageux: { code: 3, cloud: 100, wind: 10 }, eclaircies: { code: 2, cloud: 50, wind: 10 } };
+async function loadWeather(){
+  try {
+    const u = `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&current=temperature_2m,weather_code,wind_speed_10m,wind_gusts_10m,cloud_cover,precipitation&daily=sunrise,sunset&timezone=auto&forecast_days=1`;
+    const j = await (await fetch(u)).json(), c = j.current;
+    const tm = s => { const d = new Date(s); return d.getHours() * 60 + d.getMinutes(); };
+    W = { code: c.weather_code, temp: c.temperature_2m, wind: c.wind_speed_10m, gust: c.wind_gusts_10m, cloud: c.cloud_cover, rain: c.precipitation,
+      sunrise: tm(j.daily.sunrise[0]), sunset: tm(j.daily.sunset[0]), ok: true };
+  } catch (e) {}
+  if (FORCE[Q.get('meteo')]) Object.assign(W, FORCE[Q.get('meteo')]);
+  sky.dirty = true; buildWeatherFx(); rebuild();
+}
+const wx = () => {
+  const c = W.code;
+  return { storm: c >= 95, snow: (c >= 71 && c <= 77) || c === 85 || c === 86, rain: (c >= 51 && c <= 67) || (c >= 80 && c <= 82) || c >= 95,
+    drizzle: c >= 51 && c <= 57, fog: c === 45 || c === 48, clear: c <= 1 && W.cloud < 40, overcast: c === 3 || W.cloud > 80,
+    windy: W.gust >= 45 || W.wind >= 32, breezy: W.gust >= 28 || W.wind >= 18, hot: W.temp >= 29, warm: W.temp >= 20, cold: W.temp <= 4, freezing: W.temp <= 0 };
+};
+const wxText = () => { const x = wx(), t = `${Math.round(W.temp)}°C`;
+  if (x.storm) return `${t} et de l'orage. Je ne bouge pas d'ici.`;
+  if (x.snow) return `${t}, il neige ! Bonnet obligatoire.`;
+  if (x.rain && x.windy) return `${t}, pluie et vent. Le parapluie ne tiendra pas, j'ai mon ciré.`;
+  if (x.drizzle) return `${t}, petite bruine. Parapluie de sortie.`;
+  if (x.rain) return `${t} et de la pluie. Prends un parapluie, moi j'ai le mien.`;
+  if (x.windy) return `${t} et beaucoup de vent. Je m'accroche à mon poteau !`;
+  if (x.fog) return `${t}, brouillard. Je ne vois même pas le poteau d'en face.`;
+  if (x.hot) return `${t} ! Canicule. Bois de l'eau, moi je prends une glace.`;
+  if (x.clear && x.warm) return `${t} et grand soleil. Séance bronzage.`;
+  if (x.freezing) return `${t}, ça caille. Écharpe et bonnet de rigueur.`;
+  if (x.cold) return `${t}, frisquet. Couvre-toi bien.`;
+  if (x.clear) return `${t}, ciel dégagé. Belle journée.`;
+  if (x.overcast) return `${t}, ciel tout gris. Rien de grave.`;
+  return `${t}, quelques nuages. Ça se tient.`; };
+
+// ================= fêtes et saisons =================
+function easter(y){ const a = y % 19, b = Math.floor(y / 100), c = y % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3),
+  h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const mo = Math.floor((h + l - 7 * m + 114) / 31), da = ((h + l - 7 * m + 114) % 31) + 1; return new Date(y, mo - 1, da); }
+const ANNIV = (Q.get('anniv') || '').split(/[-/.]/).map(Number); // jj-mm
+function fete(d){
+  const m = d.getMonth() + 1, j = d.getDate(), h = d.getHours(), md = m * 100 + j;
+  const e = easter(d.getFullYear()), de = Math.round((new Date(d.getFullYear(), m - 1, j) - e) / 864e5);
+  if (ANNIV.length === 2 && ANNIV[0] === j && ANNIV[1] === m) return { k: 'monanniv', hat: 'party', obj: 'cake', fx: 'confetti', msg: 'Joyeux anniversaire !! Gâteau, chapeau, confettis : tout est prêt.' };
+  if (md === 1231 || (md === 101)) return { k: 'nouvelan', hat: 'party', fx: (md === 1231 && h >= 20) || (md === 101 && h < 3) ? 'fireworks' : 'confetti', msg: md === 101 ? 'Bonne année ! Je prends de bonnes résolutions : moins de graines.' : 'Dernier jour de l\'année ! On fête ça ce soir.' };
+  if (md === 106) return { k: 'rois', hat: 'crown', msg: "C'est l'Épiphanie. J'ai eu la fève !" };
+  if (md === 202) return { k: 'chandeleur', hand: 'crepe', msg: 'Chandeleur ! Une crêpe, puis deux, puis dix.' };
+  if (md === 214) return { k: 'valentin', fx: 'hearts', neck: 'bowtie', msg: 'Saint-Valentin. Des cœurs partout, même sur les fils.' };
+  if (md === 317) return { k: 'patrick', hat: 'clover', msg: "Saint-Patrick ! Tout est vert aujourd'hui." };
+  if (md === 401) return { k: 'poisson', back: 'fish', msg: "Rien d'anormal ici. Absolument rien dans mon dos." };
+  if (de >= -1 && de <= 1) return { k: 'paques', hat: 'bunny', obj: 'egg', msg: "Joyeuses Pâques ! J'ai trouvé un œuf sur le poteau." };
+  if (md === 501) return { k: 'muguet', beak: 'muguet', msg: '1er mai : un brin de muguet pour toi.' };
+  if (md === 621) return { k: 'musique', hat: 'headphones', fx: 'notes', msg: 'Fête de la musique ! Je chante faux mais fort.' };
+  if (md === 714) return { k: 'quatorze', hand: 'flag', fx: h >= 21 ? 'fireworks' : null, msg: h >= 21 ? 'Feu d\'artifice du 14 juillet ! Ooooh. Aaaah.' : '14 juillet ! Défilé, puis feu d\'artifice ce soir.' };
+  if (m === 10 && j >= 25 || md === 1101 && h < 6) return { k: 'halloween', hat: 'witch', obj: 'pumpkin', fx: 'bats', msg: j === 31 ? 'Halloween ! Des bonbons ou un sort.' : 'Halloween approche… les citrouilles sont de sortie.' };
+  if (m === 12 && j <= 26){ const noel = j === 24 || j === 25;
+    return { k: 'noel', hat: 'santa', fx: 'lights', msg: j === 25 ? 'Joyeux Noël ! Ho ho ho (en piou).' : j === 24 ? 'Réveillon ce soir ! Laisse des graines pour le Père Noël.' : `Noël dans ${25 - j} jour${25 - j > 1 ? 's' : ''}. Les guirlandes sont posées.`, big: noel }; }
+  if (m === 12 || (m === 1 && j <= 6)) return { k: 'fetes', fx: 'lights', msg: null };
+  return null;
+}
+function saison(d){ const md = (d.getMonth() + 1) * 100 + d.getDate();
+  return md >= 320 && md < 621 ? 'printemps' : md >= 621 && md < 922 ? 'ete' : md >= 922 && md < 1221 ? 'automne' : 'hiver'; }
+
+// ================= calendrier Notion =================
+const CODE = Q.get('code') || '', DB = Q.get('db') || '', DEMO = Q.get('demo');
+const API = Q.get('api') || 'https://disque-widget.vercel.app/api/agenda';
+let EVENTS = [], ERR = '';
+function demoEvents(){ const d = now(), at = (dd, h, mi) => { const x = new Date(d); x.setDate(x.getDate() + dd); x.setHours(h, mi || 0, 0, 0); return x.toISOString(); };
+  const day = dd => { const x = new Date(d); x.setDate(x.getDate() + dd); return x.toISOString().slice(0, 10); };
+  return [
+    { id: 1, url: '#', title: 'Anniversaire de Léa', start: day(0), allDay: true },
+    { id: 2, url: '#', title: 'Rdv avec Paul', start: at(0, 10, 30), end: at(0, 11, 30), place: 'Café Oberkampf' },
+    { id: 3, url: '#', title: 'Dentiste', start: at(0, 14), end: at(0, 14, 45) },
+    { id: 4, url: '#', title: 'Théâtre : Cyrano', start: at(0, 20), end: at(0, 22, 30), place: 'Comédie-Française' },
+    { id: 5, url: '#', title: 'Call production', start: at(1, 9, 30), end: at(1, 10) },
+    { id: 7, url: '#', title: 'Point avec Tie Brek', start: new Date(d.getTime() + 10 * 60000).toISOString(), end: new Date(d.getTime() + 40 * 60000).toISOString(), meet: 'https://meet.google.com/abc-defg-hij' },
+    { id: 6, url: '#', title: 'Concert Fred again..', start: at(3, 21) } ]; }
+async function loadEvents(){
+  if (DEMO){ EVENTS = demoEvents(); rebuild(); return; }
+  try {
+    const r = await fetch(`${API}${DB ? `?db=${encodeURIComponent(DB)}` : ''}`, { headers: { 'x-key': CODE } });
+    const j = await r.json();
+    if (!r.ok){ ERR = j.error === 'code incorrect' ? 'Code incorrect dans le lien.' : j.error && /AGENDA_ICS/.test(j.error) ? "Je n'ai pas encore l'adresse de ton agenda (AGENDA_ICS sur Vercel)." : j.error === 'object_not_found' ? "Notion ne trouve pas le calendrier : partage-le avec ton intégration." : (j.error || 'Erreur agenda'); }
+    else { EVENTS = j.events || []; ERR = ''; }
+  } catch (e) { ERR = 'Calendrier injoignable pour le moment.'; }
+  rebuild();
+}
+
+// ================= comprendre chaque événement =================
+const who = e => { if (e.people) return e.people.split(',')[0].trim();
+  const m = e.title.match(/(?:avec|chez|w\/|with)\s+([A-ZÀ-Ý][\wÀ-ÿ'’-]+(?:\s+[A-ZÀ-Ý][\wÀ-ÿ'’-]+)?)/) || e.title.match(/(?:anniv(?:ersaire)?|bday|birthday)\s*(?:de\s+|d['’]\s*|:\s*|-\s*)?([A-ZÀ-Ý][\wÀ-ÿ'’-]+)/i);
+  return m ? m[1] : ''; };
+const lieu = e => e.place ? ` (${e.place})` : '';
+// k = catégorie, re = mots qui la déclenchent, prop = accessoire porté autour du rendez-vous, up/now/past = phrases
+const CATS = [
+  { k: 'anniv', re: /anniv|birthday|bday/i, prop: 'party', up: (e, W) => `C'est l'anniversaire de ${who(e) || 'quelqu\'un de cher'} ! N'oublie pas de lui souhaiter.`, now: e => `Joyeux anniversaire à ${who(e) || 'toi-sais-qui'} ! J'ai mis mon chapeau.`, past: e => `Tu as bien souhaité l'anniversaire de ${who(e) || 'la personne'} ?` },
+  { k: 'theatre', re: /th[ée][âa]tre|pi[èe]ce|op[ée]ra|ballet|spectacle|com[ée]die|one.?man|stand.?up/i, prop: 'bowtie', up: (e, W) => `${W} : ${e.title}${lieu(e)}. Waouh, du théâtre ! Bonne représentation.`, now: () => 'Lever de rideau ! Profite bien du spectacle.', past: () => 'Alors, cette pièce ? Standing ovation ?' },
+  { k: 'concert', re: /concert|festival|\blive\b|\bdj\b|gig|showcase/i, prop: 'headphones', up: (e, W) => `${W} : ${e.title}. Je chauffe mes cordes vocales.`, now: () => 'Ça joue ! Fais du bruit pour moi.', past: () => 'Les oreilles bourdonnent encore ?' },
+  { k: 'cine', re: /cin[ée]|\bfilm\b|s[ée]ance|projection|avant.?premi[èe]re/i, prop: 'popcorn', up: (e, W) => `${W} : ${e.title}. Garde-moi du pop-corn.`, now: () => 'Chut, ça commence. Téléphone en silencieux.', past: () => 'Alors, ce film ? Je veux tout savoir (sans spoiler).' },
+  { k: 'expo', re: /expo|mus[ée]e|galerie|vernissage|biennale/i, prop: 'beret', up: (e, W) => `${W} : ${e.title}${lieu(e)}. Ouvre grand les yeux.`, now: () => 'Prends ton temps devant chaque œuvre.', past: () => 'Une œuvre coup de cœur ?' },
+  { k: 'mariage', re: /mariage|wedding|pacs/i, prop: 'bowtie', up: (e, W) => `${W} : ${e.title}. Sors le nœud papillon !`, now: () => 'Vive les mariés !', past: () => 'Tu as dansé jusqu\'au bout ?' },
+  { k: 'fete', re: /f[êe]te|soir[ée]e|party|teuf|crémaillère|cremaillere/i, prop: 'party', up: (e, W) => `${W} : ${e.title}. Ce soir on danse !`, now: () => 'Que la fête commence !', past: () => 'Bonne soirée hier ? Doucement ce matin.' },
+  { k: 'date', re: /date\b|en amoureux|valentin|rencard/i, prop: 'bowtie', up: (e, W) => `${W} : ${e.title}. Oh là là… bonne soirée !`, now: () => 'Je regarde ailleurs, promis.', past: () => 'Alors, alors ? Raconte.' },
+  { k: 'resto', re: /resto|restaurant|d[îi]ner|d[ée]j(eu|\b)|brunch|lunch|bouffe|repas/i, prop: 'napkin', up: (e, W) => `${W} : ${e.title}${lieu(e)}. Bon appétit d'avance !`, now: () => 'Bon appétit ! Garde-moi une miette.', past: () => 'C\'était bon ? Je veux le menu.' },
+  { k: 'apero', re: /ap[ée]ro|un verre|\bbar\b|drinks?|bi[èe]re|afterwork/i, prop: 'party', up: (e, W) => `${W} : ${e.title}. Santé !`, now: () => 'Santé ! Un jus de graines pour moi.', past: () => 'Pas trop tard hier ?' },
+  { k: 'medecin', re: /m[ée]decin|docteur|dentiste|kin[ée]|ost[ée]o|ophtalmo|dermato|gyn[ée]co|h[ôo]pital|analyse|radio|vaccin|psy\b/i, prop: null, up: (e, W) => `${W} : ${e.title}. Courage, ça va bien se passer.`, now: () => 'Courage, je pense à toi.', past: () => 'C\'est fait ! Bravo, une bonne chose de faite.' },
+  { k: 'sport', re: /sport|salle|gym|run|course|footing|jogging|foot\b|yoga|pilates|piscine|natation|tennis|padel|escalade|boxe|v[ée]lo|muscu|crossfit|danse/i, prop: 'headband', up: (e, W) => `${W} : ${e.title}. Allez, on transpire !`, now: () => 'Plus vite ! Plus haut ! (Moi je regarde.)', past: () => 'Bravo pour la séance. N\'oublie pas les étirements.' },
+  { k: 'voyage', re: /voyage|vol\b|avion|a[ée]roport|train|tgv|gare|eurostar|road.?trip|valise|check.?in/i, prop: 'goggles', up: (e, W) => `${W} : ${e.title}. Bon voyage ! Envoie-moi une carte postale.`, now: () => 'En route ! Billets, passeport, chargeur ?', past: () => 'Bien arrivé ?' },
+  { k: 'tournage', re: /tournage|shoot|rep[ée]rage|casting|plateau|clip|tourn[ée]e/i, prop: 'headband', up: (e, W) => `${W} : ${e.title}${lieu(e)}. Bon courage à toute l'équipe !`, now: () => 'Silence sur le plateau… je retiens mes piou.', past: () => 'Dans la boîte ! Belle journée de travail.' },
+  { k: 'montage', re: /montage|[ée]talonnage|mixage|post.?prod|edit\b|retouche|rendu|export/i, prop: 'glasses', up: (e, W) => `${W} : ${e.title}. Café et concentration.`, now: () => 'Je ne te dérange pas, tu es dans le flow.', past: () => 'Exporté ? Bravo.' },
+  { k: 'deadline', re: /deadline|date limite|[ée]ch[ée]ance|livraison|rendu|remise|dossier/i, prop: 'headband', up: (e, W) => `${W} : ${e.title}. Deadline ! Tu vas tout déchirer.`, now: () => 'Dernière ligne droite ! Je crois en toi.', past: () => 'C\'est envoyé ? Respire.' },
+  { k: 'call', re: /call|appel|visio|zoom|meet\b|teams|t[ée]l[ée]phone|facetime/i, prop: 'headphones', up: (e, W) => `${W} : ${e.title}. Je me tais pendant l'appel, promis.`, now: () => 'Chut, appel en cours.', past: () => 'Bon appel ?' },
+  { k: 'reunion', re: /r[ée]union|meeting|point\b|brief|debrief|pr[ée]sentation|pitch|entretien|interview|comit[ée]/i, prop: 'tie', up: (e, W) => `${W} : ${e.title}. Café avant la réunion ?`, now: () => 'Réunion en cours. Prends des notes, moi je garde le poteau.', past: () => 'Comment s\'est passée la réunion ?' },
+  { k: 'cours', re: /cours\b|atelier|formation|workshop|masterclass|conf[ée]rence|s[ée]minaire|examen|partiel/i, prop: 'glasses', up: (e, W) => `${W} : ${e.title}. Bon cours, prends des notes.`, now: () => 'Écoute bien, interro après.', past: () => 'Tu as appris un truc ?' },
+  { k: 'famille', re: /maman|papa|m[èe]re|p[èe]re|mamie|papi|grand.?m[èe]re|grand.?p[èe]re|famille|parents|fr[èe]re|s(œ|oe)ur|cousin|tonton|tata/i, prop: null, up: (e, W) => `${W} : ${e.title}. Bisous à la famille !`, now: () => 'Profite de la famille.', past: () => 'Tout le monde va bien ?' },
+  { k: 'coiffeur', re: /coiff|barbier|cheveux|coupe\b/i, prop: null, up: (e, W) => `${W} : ${e.title}. Nouvelle tête en vue !`, now: () => 'Pas trop court derrière !', past: () => 'Montre ta nouvelle coupe !' },
+  { k: 'courses', re: /courses|march[ée]|supermarch|monop|carrefour|picard|biocoop|ikea/i, prop: null, up: (e, W) => `${W} : ${e.title}. Tu me ramènes des graines ?`, now: () => 'N\'oublie pas les graines.', past: () => 'Frigo rempli !' },
+  { k: 'admin', re: /banque|imp[ôo]ts|urssaf|caf\b|pr[ée]fecture|mairie|notaire|comptable|assurance|papiers|paperasse|administratif/i, prop: 'glasses', up: (e, W) => `${W} : ${e.title}. Courage pour la paperasse.`, now: () => 'Respire, c\'est bientôt fini.', past: () => 'Paperasse terminée. Bravo !' },
+  { k: 'demenagement', re: /d[ée]m[ée]nag|cartons|[ée]tat des lieux/i, prop: 'headband', up: (e, W) => `${W} : ${e.title}. Courage pour les cartons !`, now: () => 'Plie les genoux en portant !', past: () => 'Bienvenue chez toi !' },
+  { k: 'vacances', re: /vacances|cong[ée]|\boff\b|repos|week.?end|holiday/i, prop: 'straw', up: (e, W) => `${W} : ${e.title}. Repos bien mérité !`, now: () => 'Mode vacances activé.', past: () => 'Retour de vacances… courage.' },
+  { k: 'rdv', re: /rdv|rendez.?vous|avec\s+[A-ZÀ-Ý]|caf[ée]\b|voir\s+[A-ZÀ-Ý]/, prop: 'tie', up: (e, W) => `${W} : rendez-vous${who(e) ? ' avec ' + who(e) : ''}${lieu(e)}.`, now: e => `Rendez-vous${who(e) ? ' avec ' + who(e) : ''} en cours. Je garde le poteau.`, past: e => `Comment s'est passé le rendez-vous${who(e) ? ' avec ' + who(e) : ''} ?` },
+];
+const catOf = e => { const s = `${e.title} ${(e.tags || []).join(' ')} ${e.notes || ''}`; return CATS.find(c => c.re.test(s)) || (e.meet ? CATS.find(c => c.k === 'call') : null); };
+const evStart = e => e.allDay ? new Date(e.start + 'T00:00') : new Date(e.start);
+const evEnd = e => e.end ? (e.allDay ? new Date(e.end + 'T23:59') : new Date(e.end)) : e.allDay ? new Date(e.start + 'T23:59') : new Date(evStart(e).getTime() + 3600e3);
+
+// ================= messages des bulles =================
+let MSGS = [], PROP = null;
+function rebuild(){
+  const d = now(), h = d.getHours(), x = wx(), F = fete(d);
+  const ev = EVENTS.map(e => ({ ...e, s: evStart(e), e2: evEnd(e), cat: catOf(e) }));
+  const today = ev.filter(e => sameDay(e.s, d) || (e.s < d && e.e2 > d));
+  const tmr = new Date(d); tmr.setDate(tmr.getDate() + 1);
+  const tomorrow = ev.filter(e => sameDay(e.s, tmr));
+  const left = today.filter(e => e.e2 > d && !e.allDay);
+  const msgs = [];
+  const asleep = isNight(d);
+  const W_ = e => { if (e.allDay) return "Aujourd'hui"; const m = Math.round((e.s - d) / 60000); return m <= 0 ? 'Maintenant' : m < 60 ? `Dans ${m} min` : `À ${hm(e.s)}`; };
+  const line = (e, mode) => { const c = e.cat; const when = mode === 'tomorrow' ? (e.allDay ? 'Demain' : `Demain ${hm(e.s)}`) : W_(e);
+    if (c){ if (mode === 'now' && !e.allDay) return c.now(e); if (mode === 'past') return c.past(e); return c.up(e, when); }
+    if (e.task && mode !== 'past') return mode === 'tomorrow' ? `Demain, à faire : ${e.title}.` : e.allDay ? `À faire aujourd'hui : ${e.title}.` : `${when}, à faire : ${e.title}.`;
+    if (mode === 'now') return `En ce moment : ${e.title}.`; if (mode === 'past') return `${e.title} : c'est fait !`; return `${when} : ${e.title}${lieu(e)}.`; };
+  if (ERR) msgs.push({ head: 'calendrier', text: ERR });
+  // 1) le titre du moment
+  if (asleep){
+    msgs.push({ head: 'zzz', text: tomorrow.length ? `Zzz… demain : ${tomorrow.filter(e => !e.allDay)[0] ? hm(tomorrow.filter(e => !e.allDay)[0].s) + ', ' : ''}${tomorrow[0].title}.` : 'Zzz… rien de prévu demain. Grasse mat ?', dim: true });
+  } else {
+    const n = today.filter(e => e.e2 > d || e.allDay).length;
+    let head = h < 12 ? (h < 5 ? 'Encore debout ?' : d.getDay() === 1 ? 'Bonjour ! Lundi… double café.' : 'Bonjour !') : h < 18 ? 'Cet après-midi' : 'Ce soir';
+    let text = h < 12 ? (n ? `${n} truc${n > 1 ? 's' : ''} au programme aujourd'hui.` : "Rien au programme aujourd'hui. Journée libre !")
+      : h < 18 ? (left.length ? `Encore ${left.length} truc${left.length > 1 ? 's' : ''} aujourd'hui.` : "Plus rien aujourd'hui. Profite !")
+      : (left.length ? `Encore ${left.length} truc${left.length > 1 ? 's' : ''} ce soir.` : tomorrow.length ? `Demain : ${tomorrow.length} truc${tomorrow.length > 1 ? 's' : ''} au programme.` : 'Soirée tranquille, demain aussi.');
+    if (d.getDay() === 5 && h >= 17) text = "C'est vendredi ! " + text;
+    msgs.push({ head: `${JOURS[d.getDay()]} ${d.getDate()}`, text: (head.endsWith('!') || head.endsWith('?') || head.endsWith('.') ? head + ' ' : '') + text });
+  }
+  if (F && F.msg) msgs.push({ head: 'aujourd\'hui', text: F.msg });
+  // 2) les anniversaires et journées entières
+  for (const e of today.filter(e => e.allDay)) msgs.push({ head: e.cat && e.cat.k === 'anniv' ? 'anniversaire' : e.task ? 'à faire' : "aujourd'hui", text: line(e, e.cat && e.cat.k === 'anniv' ? 'up' : 'up'), u: e.url, meet: e.meet, ev: e });
+  // 3) ce qui se passe maintenant, puis la suite de la journée, puis ce qui vient de finir
+  if (!asleep){
+    for (const e of today.filter(e => !e.allDay && e.s <= d && e.e2 > d)) msgs.push({ head: `en ce moment`, text: line(e, 'now'), u: e.url, meet: e.meet, ev: e });
+    for (const e of left.filter(e => e.s > d)) msgs.push({ head: hm(e.s), text: line(e, 'up'), u: e.url, meet: e.meet, ev: e });
+    for (const e of today.filter(e => !e.allDay && e.e2 <= d && d - e.e2 < 3 * 3600e3)) msgs.push({ head: 'tout à l\'heure', text: line(e, 'past'), u: e.url, meet: e.meet, ev: e });
+    if (h >= 17) for (const e of tomorrow.slice(0, 3)) msgs.push({ head: 'demain', text: line(e, 'tomorrow'), u: e.url, meet: e.meet, ev: e });
+    // 4) un teaser de la semaine
+    const later = ev.filter(e => e.s > tmr && !sameDay(e.s, tmr) && e.cat && ['theatre', 'concert', 'anniv', 'voyage', 'fete', 'mariage', 'expo', 'vacances', 'cine'].includes(e.cat.k));
+    if (later[0]) msgs.push({ head: JOURS[later[0].s.getDay()], text: `${JOURS[later[0].s.getDay()][0].toUpperCase() + JOURS[later[0].s.getDay()].slice(1)} : ${later[0].title}. J'ai hâte !`, u: later[0].url });
+  }
+  MSGS = msgs;
+  // accessoire lié à l'activité du moment (1h30 avant jusqu'à la fin)
+  const act = today.filter(e => e.cat && e.cat.prop && (e.allDay || (d >= e.s - 90 * 60000 && d < e.e2))).sort((a, b) => (a.allDay ? 1 : 0) - (b.allDay ? 1 : 0));
+  PROP = act[0] ? act[0].cat.prop : null;
+  syncBubbles(true);
+}
+const isNight = d => { const m = mins(d); return m >= 23 * 60 + 15 || m < 6 * 60; };
+
+// ================= bulles : toujours là, elles tournent toutes seules =================
+let slots = [], rot = 0, lastRot = 0;
+function syncBubbles(reset){
+  const box = $('bubs'); if (reset){ rot = 0; }
+  const colW = (perch.x - 15) * S - 16, column = colW >= 140;
+  const max = Math.max(1, Math.min(3, column ? Math.floor(((pole.y + 6) * S - 10) / (W_ < 380 ? 78 : 66)) : Math.floor(((perch.y - 40) * S - 10) / 62)));
+  const urgent = m => m.meet && m.ev && !m.ev.allDay && (m.ev.s - now()) < 15 * 60000 && m.ev.e2 > now();
+  const pinned = [MSGS[0], ...MSGS.slice(1).filter(urgent)].filter(Boolean), rest = MSGS.slice(1).filter(m => !urgent(m));
+  const shown = [...pinned];
+  for (let i = 0; i < Math.min(max - pinned.length, rest.length); i++) shown.push(rest[(rot + i) % rest.length]);
+  const key = shown.map(m => m.text).join('|');
+  if (box.dataset.key === key && !reset) return; box.dataset.key = key;
+  // on garde les bulles identiques, on remplace les autres
+  const old = [...box.children]; const keep = new Map(old.map(b => [b.dataset.t, b]));
+  const els = shown.map((m, i) => { let b = keep.get(m.text); if (b){ keep.delete(m.text); return b; }
+    b = document.createElement('div'); b.className = 'bub' + (m.dim ? ' dim' : ''); b.dataset.t = m.text; if (m.u && m.u !== '#') b.dataset.u = m.u;
+    const join = m.meet ? (/zoom/.test(m.meet) ? 'Rejoindre le Zoom' : /teams/.test(m.meet) ? 'Rejoindre Teams' : /meet\.google/.test(m.meet) ? 'Rejoindre le Meet' : "Rejoindre l'appel") : '';
+    const soon = m.meet && m.ev && !m.ev.allDay && (m.ev.s - now()) < 15 * 60000 && m.ev.e2 > now();
+    b.innerHTML = `<small>${m.head}</small><span></span>${m.meet ? `<a class="join${soon ? ' now' : ''}" href="${m.meet}" target="_blank" rel="noopener">▶ ${join}</a>` : ''}`; b._full = m.text; b._i = 0; box.appendChild(b); requestAnimationFrame(() => b.classList.add('on')); return b; });
+  for (const b of keep.values()){ b.classList.remove('on'); setTimeout(() => b.remove(), 400); }
+  slots = els; layoutBubbles();
+}
+function layoutBubbles(){
+  const colW = (perch.x - 15) * S - 16, column = colW >= 140, bw = column ? Math.min(colW, 300) : Math.min(W_ - 20, 280);
+  $('bubs').style.setProperty('--bw', bw + 'px'); $('bubs').style.setProperty('--fs', (bw < 200 ? 11.5 : 12) + 'px');
+  // bulles éparpillées : chacune un peu décalée, comme des pensées différentes
+  const OFF = [.05, .75, .3, .95], GAP = [10, 18, 12, 16], birdTop = (perch.y - 34) * S - 10, colR = (perch.x - 13) * S - 10;
+  let y = 0; slots.forEach((b, i) => { b.style.maxWidth = Math.min(185, W_ - 30) + 'px'; b.style.left = '0px';
+    const w = b.offsetWidth, h = b.offsetHeight, right = (y + h > birdTop) ? colR : W_ - 20;
+    const off = Math.round(Math.max(0, right - w) * OFF[(i + rot) % 4]);
+    b.style.left = off + 'px'; b.style.top = y + 'px'; y += h + GAP[(i + rot) % 4]; b.classList.toggle('tail', i === slots.length - 1);
+    const headX = (bird.x + 4) * S - 10; b.style.setProperty('--tx', (column ? b.offsetWidth - 26 : clamp(headX - 18, 14, b.offsetWidth - 26)) + 'px'); });
+}
+$('bubs').addEventListener('click', e => { if (e.target.closest('a')) return; const b = e.target.closest('[data-u]'); if (b) window.open(b.dataset.u, '_blank'); });
+
+// ================= rendu pixel =================
+const cv = $('c'), cx = cv.getContext('2d');
+let W_ = 0, H_ = 0, dpr = 1, S = 4, AW = 80, AH = 70;
+const A = document.createElement('canvas'), ax = A.getContext('2d');       // scène basse définition
+const FG = document.createElement('canvas'), fx = FG.getContext('2d');      // premier plan (pour l'éclairage de nuit)
+const SK = document.createElement('canvas'), sx = SK.getContext('2d');      // ciel en cache
+const perch = { x: 50, y: 42 }, pole = { x: 50, y: 42 };
+function layout(){
+  dpr = window.devicePixelRatio || 1; W_ = innerWidth; H_ = innerHeight;
+  cv.width = Math.round(W_ * dpr); cv.height = Math.round(H_ * dpr);
+  S = clamp(Math.floor(Math.min(W_ / 92, H_ / 86)), 2, 8);
+  AW = Math.ceil(W_ / S); AH = Math.ceil(H_ / S);
+  for (const c of [A, FG, SK]){ c.width = AW; c.height = AH; }
+  pole.x = Math.round(AW * .75); pole.y = Math.round(AH * .74);
+  perch.x = pole.x; perch.y = pole.y - 1;
+  sky.dirty = true; buildStars(); buildClouds(); syncBubbles(true);
+}
+const rgb = (r, g, b) => `rgb(${r | 0},${g | 0},${b | 0})`;
+const mix = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
+const P = (c, x, y, w = 1, h = 1) => { c.fillRect(x | 0, y | 0, w, h); };
+const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+
+// ----- lumière du jour : 0 nuit … 1 plein jour, avec aube/crépuscule
+function light(d){
+  const m = mins(d), sr = W.sunrise, ss = W.sunset;
+  const day = clamp((m - (sr - 40)) / 80, 0, 1) * clamp(((ss + 40) - m) / 80, 0, 1);
+  const glow = Math.max(0, 1 - Math.abs(m - sr) / 55) + Math.max(0, 1 - Math.abs(m - ss) / 60); // aube / couchant
+  return { day, glow: clamp(glow, 0, 1), dawn: m < 12 * 60 };
+}
+const sky = { dirty: true, key: '' };
+function skyColors(d){
+  const L = light(d), x = wx();
+  let top = mix([12, 16, 44], [52, 132, 222], L.day), bot = mix([34, 42, 92], [168, 220, 246], L.day);
+  if (L.glow > 0){ const gt = L.dawn ? [96, 104, 186] : [86, 62, 140], gb = L.dawn ? [252, 168, 120] : [255, 122, 84];
+    top = mix(top, gt, L.glow * .65); bot = mix(bot, gb, L.glow * .8); }
+  const grey = x.storm ? .85 : x.rain || x.snow ? .7 : x.fog ? .8 : x.overcast ? .55 : W.cloud / 100 * .25;
+  if (grey > 0){ const gt = mix([18, 22, 34], x.storm ? [62, 68, 84] : [112, 124, 140], L.day), gb = mix([40, 46, 62], x.storm ? [96, 104, 120] : [176, 186, 198], L.day);
+    top = mix(top, gt, grey); bot = mix(bot, gb, grey); }
+  return { top, bot, L };
+}
+function drawSky(d){
+  const { top, bot } = skyColors(d), key = [...top, ...bot].map(v => v | 0).join(',') + AW + 'x' + AH;
+  if (key === sky.key && !sky.dirty) return; sky.key = key; sky.dirty = false;
+  const im = sx.createImageData(AW, AH), u = new Uint32Array(im.data.buffer), LV = 9;
+  for (let y = 0; y < AH; y++){ const f = Math.pow(y / (AH - 1), 1.1) * (LV - 1), lo = Math.floor(f), fr = f - lo;
+    const c0 = mix(top, bot, lo / (LV - 1)), c1 = mix(top, bot, Math.min(LV - 1, lo + 1) / (LV - 1));
+    for (let x = 0; x < AW; x++){ const c = fr * 16 > BAYER[(y & 3) * 4 + (x & 3)] ? c1 : c0; u[y * AW + x] = 0xff000000 | (c[2] << 16) | (c[1] << 8) | (c[0] | 0); } }
+  sx.putImageData(im, 0, 0);
+}
+let stars = [];
+function buildStars(){ stars = []; for (let i = 0; i < AW * AH / 55; i++) stars.push({ x: Math.random() * AW | 0, y: Math.random() * AH * .7 | 0, p: Math.random() * 7, b: Math.random() < .15 }); }
+function moonPhase(d){ const lp = 2551443, nm = new Date(1970, 0, 7, 20, 35, 0).getTime(); return (((d.getTime() - nm) / 1000) % lp) / lp; }
+// ----- nuages
+let clouds = [];
+function buildClouds(){
+  const x = wx(), n = Math.round((W.cloud / 100) * (AW / 14)) + (x.rain || x.snow || x.storm ? 3 : 0);
+  clouds = []; for (let i = 0; i < n; i++) clouds.push(mkCloud(Math.random() * (AW + 40) - 20));
+}
+function mkCloud(xx){ const w = rnd(14, 30) | 0, puffs = []; for (let i = 0; i < 4 + (w / 6 | 0); i++) puffs.push([rnd(0, w), rnd(-3, 2), rnd(3, 6.5)]);
+  return { x: xx, y: rnd(3, AH * .5), w, puffs, z: Math.random() < .5 ? .6 : 1 }; }
+function drawClouds(c, d, dt, L){
+  const x = wx(), speed = (2 + W.wind * .35) * (Q.get('vitesse') ? +Q.get('vitesse') : 1);
+  const base = x.storm ? [70, 74, 88] : x.rain || x.snow ? [150, 158, 170] : [250, 250, 252];
+  let col = mix(mix([46, 52, 82], base, L.day), [255, 168, 140], L.glow * .5 * (x.rain ? .3 : 1));
+  const shade = mix(col, [20, 24, 50], .28), hi = mix(col, [255, 255, 255], .5);
+  for (const cl of clouds){
+    cl.x += dt * speed * .1 * cl.z; if (cl.x > AW + 10) Object.assign(cl, mkCloud(-cl.w - 12));
+    for (const [px, py, r] of cl.puffs){ c.fillStyle = rgb(...shade); disc(c, cl.x + px, cl.y + py + 1, r); }
+    for (const [px, py, r] of cl.puffs){ c.fillStyle = rgb(...col); disc(c, cl.x + px, cl.y + py, r - .6); }
+    for (const [px, py, r] of cl.puffs){ c.fillStyle = rgb(...hi); disc(c, cl.x + px - r * .3, cl.y + py - r * .45, r * .35); }
+  }
+}
+function disc(c, cx_, cy_, r){ for (let y = -Math.ceil(r); y <= Math.ceil(r); y++){ const w = Math.sqrt(Math.max(0, r * r - y * y)); if (w <= 0) continue; c.fillRect(Math.round(cx_ - w), Math.round(cy_ + y), Math.round(w * 2) || 1, 1); } }
+// ----- particules météo et décor
+let fxs = [];
+function buildWeatherFx(){ fxs = fxs.filter(p => p.keep); }
+function spawn(kind, n){ for (let i = 0; i < n; i++) fxs.push(newP(kind, true)); }
+function newP(kind, anywhere){
+  const p = { kind, x: rnd(-10, AW + 10), y: anywhere ? rnd(-10, AH) : rnd(-12, -2), t: rnd(0, 9) };
+  if (kind === 'leaf' || kind === 'petal'){ p.x = anywhere ? rnd(-10, AW) : -4; p.y = rnd(0, AH * .9); p.c = kind === 'petal' ? pick(['#fbd3e0', '#ffffff', '#f6a9c4']) : pick(['#e0802f', '#c6502a', '#e6b13a', '#9b5a2a']); }
+  if (kind === 'fly'){ p.x = rnd(5, AW - 5); p.y = rnd(5, AH * .6); p.c = pick(['#ffd23f', '#f688b5', '#9fd8ff', '#ffffff']); }
+  if (kind === 'firefly'){ p.x = rnd(2, AW - 2); p.y = rnd(AH * .55, AH - 3); }
+  if (kind === 'bat'){ p.x = -6; p.y = rnd(4, AH * .4); p.v = rnd(10, 18); }
+  return p;
+}
+function drawFx(c, d, dt, L){
+  const x = wx(), wind = W.wind, sea = saison(d), F = fete(d), night = L.day < .25;
+  // combien de chaque particule on veut
+  const want = { rain: x.rain ? (x.storm ? 140 : x.drizzle ? 35 : 85) * AW / 80 : 0, snow: x.snow ? 70 * AW / 80 : 0,
+    leaf: (sea === 'automne' ? (x.breezy ? 14 : 5) : x.windy ? 10 : 0), petal: sea === 'printemps' && !x.rain ? (x.breezy ? 10 : 4) : 0,
+    fly: !night && !x.rain && !x.snow && !x.windy && (sea === 'printemps' || sea === 'ete') ? 2 : 0, firefly: night && sea === 'ete' && !x.rain ? 7 : 0,
+    bat: F && F.fx === 'bats' && night ? 3 : 0, heart: F && F.fx === 'hearts' ? 8 : 0, note: (F && F.fx === 'notes') ? 4 : 0,
+    confetti: F && F.fx === 'confetti' ? 40 : 0, gust: x.windy ? 10 : x.breezy ? 4 : 0 };
+  for (const k in want){ const have = fxs.filter(p => p.kind === k).length; if (have < want[k] && Math.random() < .5) fxs.push(newP(k, have === 0)); }
+  const slant = clamp(wind / 25, 0, 1.6);
+  for (let i = fxs.length - 1; i >= 0; i--){ const p = fxs[i]; p.t += dt;
+    let dead = false;
+    switch (p.kind){
+      case 'rain': p.y += dt * 95; p.x += dt * 95 * slant * .5; c.fillStyle = night ? 'rgba(160,180,220,.7)' : 'rgba(225,238,255,.85)'; P(c, p.x, p.y, 1, 1); P(c, p.x - slant * .5, p.y - 1, 1, 1); P(c, p.x - slant, p.y - 2, 1, 1);
+        if (p.y > AH || hitPole(p.x, p.y)){ dead = true; if (Math.random() < .4) fxs.push({ kind: 'splash', x: p.x, y: Math.min(p.y, AH - 1), t: 0 }); } break;
+      case 'splash': c.fillStyle = 'rgba(225,238,255,.7)'; P(c, p.x - 1, p.y - 1); P(c, p.x + 1, p.y - 1); dead = p.t > .12; break;
+      case 'snow': p.y += dt * 9; p.x += Math.sin(p.t * 2 + p.x) * dt * 6 + dt * wind * .25; c.fillStyle = '#fbfbff'; P(c, p.x, p.y); if (p.y > AH) dead = true; break;
+      case 'leaf': case 'petal': p.x += dt * (8 + wind * .9); p.y += Math.sin(p.t * 3) * dt * 8 + dt * 3; c.fillStyle = p.c; P(c, p.x, p.y, 2, 1); if (Math.sin(p.t * 6) > 0) P(c, p.x + 1, p.y - 1); if (p.x > AW + 4 || p.y > AH) dead = true; break;
+      case 'gust': p.x += dt * (40 + wind); c.fillStyle = 'rgba(255,255,255,.35)'; P(c, p.x, p.y, 6, 1); P(c, p.x + 7, p.y - 1, 3, 1); if (p.x > AW + 10) dead = true; break;
+      case 'fly': { // papillon
+        p.x += Math.sin(p.t * .7) * dt * 9; p.y += Math.cos(p.t * 1.1) * dt * 6; const o = Math.sin(p.t * 18) > 0;
+        c.fillStyle = p.c; P(c, p.x - (o ? 2 : 1), p.y - 1, o ? 2 : 1, o ? 2 : 1); P(c, p.x + 1, p.y - 1, o ? 2 : 1, o ? 2 : 1); c.fillStyle = '#2a1b16'; P(c, p.x, p.y - 1, 1, 2);
+        bird.watch = p; if (p.t > 25) dead = true; break; }
+      case 'firefly': { p.x += Math.sin(p.t * .9 + p.y) * dt * 4; p.y += Math.cos(p.t * .7) * dt * 3; const a = (Math.sin(p.t * 2.5) + 1) / 2; c.fillStyle = `rgba(230,255,120,${.25 + a * .7})`; P(c, p.x, p.y); if (a > .7){ c.fillStyle = 'rgba(230,255,120,.25)'; P(c, p.x - 1, p.y); P(c, p.x + 1, p.y); P(c, p.x, p.y - 1); P(c, p.x, p.y + 1); } if (p.t > 30) dead = true; break; }
+      case 'bat': { p.x += dt * p.v; p.y += Math.sin(p.t * 6) * dt * 6; const o = Math.sin(p.t * 20) > 0; c.fillStyle = '#120c18'; P(c, p.x, p.y, 2, 1); P(c, p.x - 2, p.y - (o ? 1 : -1), 2, 1); P(c, p.x + 2, p.y - (o ? 1 : -1), 2, 1); if (p.x > AW + 6) dead = true; break; }
+      case 'heart': { if (!p.y0){ p.x = rnd(2, AW - 6); p.y = AH + 2; p.y0 = 1; } p.y -= dt * 8; p.x += Math.sin(p.t * 2) * dt * 4; c.fillStyle = '#f15b8a'; P(c, p.x, p.y, 2, 1); P(c, p.x + 3, p.y, 2, 1); P(c, p.x - 1, p.y + 1, 7, 1); P(c, p.x, p.y + 2, 5, 1); P(c, p.x + 1, p.y + 3, 3, 1); P(c, p.x + 2, p.y + 4); if (p.y < -6) dead = true; break; }
+      case 'note': { if (!p.y0){ p.x = bird.x + rnd(2, 8); p.y = bird.y - 18; p.y0 = 1; } p.y -= dt * 7; p.x += Math.sin(p.t * 3) * dt * 5; c.fillStyle = '#fbfbf7'; P(c, p.x, p.y, 1, 4); P(c, p.x - 2, p.y + 3, 2, 2); P(c, p.x + 1, p.y, 2, 1); if (p.t > 3) dead = true; break; }
+      case 'confetti': { if (!p.c) p.c = pick(['#ff5b2e', '#f688b5', '#ffd23f', '#6cc07a', '#7cc4ff', '#ffffff']); p.y += dt * 12; p.x += Math.sin(p.t * 4 + p.x) * dt * 6; c.fillStyle = p.c; P(c, p.x, p.y, Math.sin(p.t * 8) > 0 ? 2 : 1, 1); if (p.y > AH) dead = true; break; }
+      case 'puff': { p.x += dt * (4 + wind * .2) * p.dir; p.y -= dt * 3; c.fillStyle = `rgba(255,255,255,${Math.max(0, .55 - p.t * .5)})`; disc(c, p.x, p.y, 1 + p.t * 1.5); if (p.t > 1.1) dead = true; break; }
+      case 'steam': { p.y -= dt * 6; p.x += Math.sin(p.t * 5) * dt * 3 + dt * wind * .15; c.fillStyle = `rgba(255,255,255,${Math.max(0, .7 - p.t * .5)})`; P(c, p.x, p.y); if (p.t > 1.4) dead = true; break; }
+      case 'feather': { p.x += dt * (14 + wind * .8); p.y += Math.sin(p.t * 4) * dt * 7 + dt * 2; c.fillStyle = '#7a5444'; P(c, p.x, p.y, 2, 1); c.fillStyle = '#a4705e'; P(c, p.x + 2, p.y); if (p.x > AW + 4) dead = true; break; }
+      case 'zzz': { p.y -= dt * 4; p.x += dt * 2.5; const a = Math.max(0, 1 - p.t / 2.6); c.fillStyle = `rgba(230,240,255,${a})`; const z = p.big ? 2 : 1;
+        P(c, p.x, p.y, 3 * z, z); P(c, p.x + 2 * z, p.y + z, z, z); P(c, p.x + z, p.y + 2 * z, z, z); P(c, p.x, p.y + 3 * z, 3 * z, z); if (p.t > 2.6) dead = true; break; }
+      case 'chirp': { p.y -= dt * 6; c.fillStyle = '#fbfbf7'; P(c, p.x, p.y, 1, 3); P(c, p.x - 1, p.y + 2, 1, 1); P(c, p.x + 1, p.y, 1, 1); if (p.t > 1.2) dead = true; break; }
+      case 'spark': { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 20 * dt; c.fillStyle = p.c; if (p.t < p.life) P(c, p.x, p.y); else dead = true; break; }
+    }
+    if (dead) fxs.splice(i, 1);
+  }
+}
+const hitPole = (x, y) => (Math.abs(x - pole.x) <= 2 && y >= pole.y) || (y >= pole.y + 7 && y <= pole.y + 8 && Math.abs(x - pole.x) <= 17);
+// ----- feu d'artifice
+let fwT = 0;
+function fireworks(c, dt){ fwT -= dt; if (fwT <= 0){ fwT = rnd(.5, 1.4); const cxw = rnd(8, AW - 8), cyw = rnd(5, AH * .4), col = pick(['#ff5b2e', '#ffd23f', '#f688b5', '#7cc4ff', '#ffffff', '#6cc07a']);
+  for (let i = 0; i < 22; i++){ const a = i / 22 * Math.PI * 2, v = rnd(14, 22); fxs.push({ kind: 'spark', x: cxw, y: cyw, vx: Math.cos(a) * v, vy: Math.sin(a) * v, c: col, life: rnd(.7, 1.1), t: 0 }); } } }
+// ----- éclair
+let flash = 0, bolt = null, nextBolt = 4;
+// ----- poteau, fils, lampadaire
+function drawPole(c, d, L, t){
+  const X = pole.x, Y = pole.y, x = wx(), F = fete(d);
+  const wood = '#6b5546', woodD = '#4f3e33', woodL = '#8a6f5c', metal = '#5c6470', glass = '#86d3b0', glassL = '#d6f5e6';
+  const sway = x.windy ? Math.sin(t * 2.2) * 1.4 : x.breezy ? Math.sin(t * 1.4) * .6 : 0;
+  // fils : de chaque isolateur jusqu'aux bords, avec une courbe
+  const ins = [X - 15, X - 9, X + 9, X + 15], iy = Y + 4;
+  const wire = (x0, y0, x1, y1, sag, lights) => { let prev = null;
+    for (let i = 0; i <= 40; i++){ const f = i / 40, xx = lerp(x0, x1, f), yy = lerp(y0, y1, f) + sag * 4 * f * (1 - f) + sway * Math.sin(f * Math.PI);
+      c.fillStyle = '#1d2430'; P(c, xx, yy, Math.ceil(Math.abs(x1 - x0) / 40) + 1, 1);
+      if (lights && i % 4 === 2){ const on = (Math.floor(t * 2) + i) % 3; c.fillStyle = ['#ff5b2e', '#ffd23f', '#6cc07a', '#7cc4ff', '#f688b5'][(i / 4 | 0) % 5]; if (on) P(c, xx, yy + 1, 1, 2); } } };
+  const lights = F && F.fx === 'lights';
+  wire(ins[0], iy, -2, Y + 1, 7, lights); wire(ins[1], iy, -2, Y + 9, 9, false); wire(ins[2], iy, AW + 2, Y + 9, 9, lights); wire(ins[3], iy, AW + 2, Y + 2, 7, false);
+  // poteau
+  c.fillStyle = woodD; P(c, X - 3, Y, 7, AH - Y); c.fillStyle = wood; P(c, X - 2, Y, 5, AH - Y); c.fillStyle = woodL; P(c, X - 1, Y + 1, 1, AH - Y);
+  for (let yy = Y + 4; yy < AH; yy += 9){ c.fillStyle = woodD; P(c, X + 1, yy, 1, 3); }
+  c.fillStyle = '#3b2e26'; P(c, X - 3, Y - 1, 7, 2); c.fillStyle = woodL; P(c, X - 2, Y - 1, 3, 1);
+  // traverse
+  c.fillStyle = woodD; P(c, X - 18, Y + 7, 37, 3); c.fillStyle = wood; P(c, X - 18, Y + 7, 37, 2); c.fillStyle = woodL; P(c, X - 18, Y + 7, 37, 1);
+  c.fillStyle = metal; P(c, X - 4, Y + 6, 9, 5); c.fillStyle = '#8b94a1'; P(c, X - 4, Y + 6, 9, 1);
+  for (const ix of ins){ c.fillStyle = metal; P(c, ix, Y + 6, 1, 1); c.fillStyle = glass; P(c, ix - 1, iy, 3, 2); c.fillStyle = glassL; P(c, ix - 1, iy, 1, 1); c.fillStyle = '#4c9a7a'; P(c, ix - 1, iy + 2, 3, 1); }
+  // neige sur la traverse et le chapeau du poteau
+  if (x.snow || (W.temp <= 0 && saison(d) === 'hiver')){ c.fillStyle = '#f4f8ff'; P(c, X - 18, Y + 6, 37, 1); P(c, X - 3, Y - 2, 7, 1); for (const ix of ins) P(c, ix - 1, iy - 1, 3, 1); }
+  // bras du lampadaire
+  const LX = X - 13, LY = Y + 16;
+  c.fillStyle = metal; P(c, LX + 1, LY - 3, X - 3 - LX, 2); P(c, X - 7, LY - 1, 1, 1); P(c, X - 6, LY, 1, 1); P(c, X - 5, LY + 1, 2, 1); P(c, LX, LY - 2, 2, 2);
+  c.fillStyle = '#3a414b'; P(c, LX - 3, LY - 1, 8, 2); P(c, LX - 2, LY + 1, 6, 1);
+  return { LX, LY: LY + 2 };
+}
+// ----- objets posés (citrouille, œuf, gâteau)
+function drawObj(c, kind, X, Y, t, night){
+  if (kind === 'pumpkin'){ c.fillStyle = '#2a1b16'; P(c, X - 3, Y - 5, 7, 5); c.fillStyle = '#f07a12'; P(c, X - 3, Y - 4, 7, 4); P(c, X - 2, Y - 5, 5, 1); c.fillStyle = '#c85a06'; P(c, X, Y - 4, 1, 4);
+    c.fillStyle = '#3faa5a'; P(c, X, Y - 6, 1, 1); c.fillStyle = night ? '#ffe27a' : '#2a1b16'; P(c, X - 2, Y - 3); P(c, X + 2, Y - 3); P(c, X - 1, Y - 1, 3, 1); }
+  if (kind === 'egg'){ c.fillStyle = '#2a1b16'; P(c, X - 2, Y - 6, 4, 6); P(c, X - 3, Y - 4, 6, 3); c.fillStyle = '#fbe7a1'; P(c, X - 1, Y - 5, 2, 5); P(c, X - 2, Y - 4, 4, 3);
+    c.fillStyle = '#f688b5'; P(c, X - 2, Y - 3, 4, 1); c.fillStyle = '#6cc07a'; P(c, X - 1, Y - 5, 2, 1); }
+  if (kind === 'cake'){ c.fillStyle = '#2a1b16'; P(c, X - 4, Y - 5, 9, 5); c.fillStyle = '#f688b5'; P(c, X - 3, Y - 4, 7, 2); c.fillStyle = '#fbfbf7'; P(c, X - 3, Y - 2, 7, 2);
+    c.fillStyle = '#ffd23f'; P(c, X, Y - 7, 1, 2); c.fillStyle = Math.sin(t * 14) > 0 ? '#ff5b2e' : '#ffd23f'; P(c, X, Y - 8, 1, 1); }
+}
+
+// ================= l'oiseau =================
+const BW = 64, BO = { x: 32, y: 54 };
+const bcv = document.createElement('canvas'); bcv.width = bcv.height = BW; const bk = bcv.getContext('2d'); const bim = bk.createImageData(BW, BW);
+const bbuf = new Uint32Array(BW * BW);
+const C = s => { const n = parseInt(s.slice(1), 16); return 0xff000000 | ((n & 255) << 16) | (n & 0xff00) | (n >> 16); };
+const K = { ink: C('#1d1411'), br: C('#7a5546'), br2: C('#8a6352'), md: C('#6b4839'), dk: C('#5a3a2e'), dk2: C('#43291f'), lt: C('#9b6b5c'), lt2: C('#ab7b6b'), lt3: C('#8d5f50'), redl: C('#ff6b6b'), cof: C('#3b2418'), wh: C('#fbfbf7'), or: C('#f47d10'), od: C('#c95a08'),
+  red: C('#e23b3b'), rdd: C('#a8262a'), yel: C('#ffd23f'), yd: C('#d9a514'), pink: C('#f688b5'), pkd: C('#d45a8b'), mint: C('#bfeccc'), grn: C('#3faa5a'), gd: C('#2a7a40'),
+  blue: C('#3b6fd8'), bl2: C('#7cc4ff'), navy: C('#25325e'), blk: C('#16161c'), gry: C('#9aa3ad'), gl: C('#d9dee4'), pur: C('#6b3fa0'), pud: C('#4a2875'), cre: C('#f3e3c3'), tan: C('#d9a36a'), org: C('#ff5b2e'), orgd: C('#c9401c') };
+let FLIP = 1;
+const bp = (x, y, c) => { x = Math.round(BO.x + x * FLIP); y = Math.round(BO.y + y); if (x >= 0 && y >= 0 && x < BW && y < BW) bbuf[y * BW + x] = c; };
+const bell = (cx_, cy_, rx, ry, c) => { for (let y = Math.floor(-ry); y <= Math.ceil(ry); y++) for (let x = Math.floor(-rx); x <= Math.ceil(rx); x++) if ((x * x) / (rx * rx) + (y * y) / (ry * ry) <= 1.02) bp(cx_ + x, cy_ + y, c); };
+const brect = (x0, y0, x1, y1, c) => { for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) bp(x, y, c); };
+const bline = (x0, y0, x1, y1, c) => { const n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)) || 1; for (let i = 0; i <= n; i++) bp(Math.round(lerp(x0, x1, i / n)), Math.round(lerp(y0, y1, i / n)), c); };
+const bpoly = (pts, c) => { let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9; for (const [x, y] of pts){ x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+  for (let y = Math.floor(y0); y <= Math.ceil(y1); y++) for (let x = Math.floor(x0); x <= Math.ceil(x1); x++){ let ins = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++){ const [xi, yi] = pts[i], [xj, yj] = pts[j]; if ((yi > y + .5) !== (yj > y + .5) && x + .5 < (xj - xi) * (y + .5 - yi) / (yj - yi) + xi) ins = !ins; }
+    if (ins) bp(x, y, c); } };
+
+const bird = { x: -20, y: 10, state: 'arrive', t: 0, act: null, actT: 0, nextAct: 2, blink: 2, gx: 0, gy: 0, flip: 1, hop: 0, watch: null, landT: 0, perch: 'pole' };
+function birdPose(d, t, dt, L){
+  const x = wx(), F = fete(d), h = d.getHours(), b = bird;
+  const asleep = isNight(d) && b.state === 'perch';
+  const pose = { bob: 0, fluff: 0, hx: 0, hy: 0, eye: 'open', beak: 0, wing: 'fold', tail: 0, feet: 'stand', squash: 0, grip: false };
+  // respiration
+  pose.bob = Math.sin(t * (asleep ? 1.6 : 2.6)) > .3 ? 1 : 0;
+  if (b.state === 'arrive' || b.state === 'fly'){ pose.wing = Math.floor(t * 14) % 2 ? 'up' : 'down'; pose.feet = 'tuck'; pose.bob = 0; return pose; }
+  if (b.landT > 0){ pose.wing = 'up'; pose.squash = 1; }
+  if (asleep){ pose.eye = 'closed'; pose.hx = -1; pose.hy = 2; pose.fluff = 1; pose.beak = 0; return pose; }
+  if (x.windy){ pose.grip = true; pose.wing = 'grip'; pose.hy = 1; pose.fluff = 0; pose.eye = 'half';
+    const gust = (Math.sin(t * 1.7) + Math.sin(t * 4.3) * .5 + 1.5) / 3; pose.lean = -(.12 + gust * .16) * bird.flip; pose.tail = Math.floor(t * 9) % 2; pose.ruffle = gust > .6; }
+  // regard : souris, papillon, ou au hasard
+  let tx = 0, ty = 0;
+  if (mouse.in){ tx = clamp((mouse.x / S - b.x) / 18, -1, 1); ty = clamp((mouse.y / S - (b.y - 16)) / 18, -1, 1); }
+  else if (b.watch && fxs.includes(b.watch)){ tx = clamp((b.watch.x - b.x) / 14, -1, 1); ty = clamp((b.watch.y - (b.y - 16)) / 14, -1, 1); }
+  else { tx = Math.sin(t * .4) > .6 ? 1 : Math.sin(t * .4) < -.7 ? -1 : 0; ty = Math.sin(t * .27) > .8 ? -1 : 0; }
+  if (b.flip < 0) tx = -tx;
+  b.gx += (tx - b.gx) * Math.min(1, dt * 8); b.gy += (ty - b.gy) * Math.min(1, dt * 8);
+  // clignement
+  b.blink -= dt; if (b.blink < -.12) b.blink = Math.random() < .2 ? .25 : rnd(2, 5);
+  if (b.blink < 0) pose.eye = 'closed';
+  if (x.fog && pose.eye === 'open') pose.eye = 'half';
+  if (x.storm) pose.eye = flash > 0 ? 'wide' : pose.eye;
+  if (h >= 21 && Math.sin(t * .3) > .9) pose.eye = 'half';
+  // actions de la vie de tous les jours
+  const a = b.act, at = b.actT;
+  if (a === 'look'){ b.gx = at < .8 ? -1 : 1; }
+  if (a === 'tilt'){ pose.hx = 1; pose.hy = -1; }
+  if (a === 'preen'){ pose.hx = -3; pose.hy = 4; pose.eye = 'closed'; pose.wing = Math.floor(at * 6) % 2 ? 'fold' : 'mid'; }
+  if (a === 'stretch'){ pose.wing = at < 1 ? 'up' : 'fold'; pose.hy = -1; }
+  if (a === 'flick'){ pose.tail = Math.floor(at * 10) % 2; }
+  if (a === 'hop'){ pose.squash = at < .1 ? 1 : 0; }
+  if (a === 'sing' || b.chirp > 0){ pose.beak = Math.floor(at * 8) % 2 ? 2 : 0; pose.hy = -1; }
+  if (a === 'fluff'){ pose.fluff = 1; pose.eye = at < .8 ? 'happy' : pose.eye; }
+  if (a === 'yawn'){ pose.beak = at > .2 && at < 1.2 ? 2 : 0; pose.eye = at > .2 && at < 1.2 ? 'closed' : pose.eye; pose.hy = -1; }
+  if (a === 'sip'){ pose.sip = at > .3 && at < 1.4; if (pose.sip){ pose.hx = 1; pose.hy = 1; pose.eye = 'happy'; } }
+  if (a === 'scratch'){ pose.hy = 1; pose.feet = 'scratch'; pose.foot = Math.floor(at * 12) % 2; }
+  if (a === 'shiver'){ pose.shiver = Math.floor(at * 24) % 2 ? 1 : -1; pose.fluff = 1; }
+  if (a === 'sun'){ pose.eye = 'happy'; pose.hy = -1; pose.hx = 1; }
+  if (b.chirp > 0){ b.chirp -= dt; pose.beak = Math.floor(b.chirp * 10) % 2 ? 2 : 0; pose.eye = 'happy'; }
+  if (x.storm && flash > 0){ pose.fluff = 1; }
+  return pose;
+}
+function chooseAct(d){
+  const x = wx(), h = d.getHours(), list = ['look', 'look', 'tilt', 'preen', 'stretch', 'flick', 'flick', 'hop', 'sing', 'fluff', 'turn', 'scratch'];
+  if (hasMug(d)) list.push('sip', 'sip', 'sip');
+  if (h >= 21 || h < 8) list.push('yawn');
+  if (x.cold) list.push('shiver', 'fluff');
+  if (sunbath(d)) list.push('sun', 'sun');
+  if (x.windy) return pick(['look', 'shiver', 'flick']);
+  if (!x.rain && !x.windy && Math.random() < .05) return 'visit';
+  return pick(list);
+}
+const hasMug = d => { const h = d.getHours(), x = wx(); return h >= 6 && h < 11 && !x.windy && !(fete(d) && fete(d).hand); };
+const sunbath = d => { const x = wx(), h = d.getHours(); return x.clear && x.warm && h >= 11 && h < 17 && !x.windy; };
+// ---- tenue : on choisit tête / visage / cou / main / bec / dos
+function outfit(d){
+  const x = wx(), F = fete(d) || {}, h = d.getHours(), asleep = isNight(d) && bird.state === 'perch', o = {};
+  // tête
+  o.hat = F.hat || null;
+  if (!o.hat && PROP && ['party', 'beret', 'headband', 'headphones', 'straw'].includes(PROP)) o.hat = PROP;
+  if (!o.hat && x.rain && x.windy) o.hat = 'souwester';
+  if (!o.hat && (x.snow || x.freezing)) o.hat = 'beanie';
+  if (!o.hat && sunbath(d) && W.temp >= 25) o.hat = 'straw';
+  if (asleep) o.hat = o.hat === 'santa' ? 'santa' : 'nightcap';
+  // visage
+  if (sunbath(d) || (x.clear && x.hot && L_.day > .5)) o.face = 'sunglasses';
+  if (PROP === 'goggles') o.face = 'goggles'; if (PROP === 'glasses') o.face = 'glasses';
+  // cou
+  if (x.snow || x.cold) o.neck = 'scarf';
+  if (PROP === 'tie') o.neck = 'tie'; if (PROP === 'bowtie' || F.neck === 'bowtie') o.neck = 'bowtie';
+  // main
+  if (x.rain && !x.windy) o.hand = 'umbrella';
+  else if (F.hand) o.hand = F.hand;
+  else if (sunbath(d) && !x.hot) o.hand = 'reflector';
+  else if (x.hot && L_.day > .5) o.hand = 'icecream';
+  else if (hasMug(d) && !asleep) o.hand = 'mug';
+  else if (PROP === 'popcorn') o.hand = 'popcorn';
+  else if (PROP === 'napkin') o.neck = o.neck || 'napkin';
+  if (asleep && o.hand !== 'umbrella') o.hand = null;
+  if (F.beak) o.beak = F.beak; if (F.back) o.back = F.back;
+  if (Q.get('tenue')) Q.get('tenue').split(',').forEach(s => { const [k, v] = s.split(':'); o[k] = v; });
+  return o;
+}
+function drawBird(pose, o, t, wind){
+  bbuf.fill(0); FLIP = bird.flip; const steam = [];
+  const b = pose.bob - pose.squash, f = pose.fluff, hx = pose.hx + (pose.shiver || 0) * .5, hy = pose.hy + b;
+  const sh = pose.shiver || 0;
+  // ---- objets tenus derrière (parapluie rouge uni)
+  if (o.hand === 'umbrella'){ const tl = clamp(wind / 12, 0, 2) | 0, ux = 7 + tl, uy = -31 + b;
+    bline(7, -6 + b, ux, uy, K.blk); bp(8, -5 + b, K.blk); bp(9, -6 + b, K.blk);
+    for (let x = -12; x <= 12; x++){ const top = Math.round(uy - Math.sqrt(Math.max(0, 1 - (x / 12.5) ** 2)) * 7); const notch = ((x + 12) % 6 === 0) ? 1 : 0;
+      for (let y = top; y <= uy - notch; y++) bp(ux + x, y, y === top && x > -6 && x < 4 ? K.redl : x > 5 ? K.rdd : K.red); }
+    for (const rx of [-6, 0, 6]){ const top = Math.round(uy - Math.sqrt(Math.max(0, 1 - (rx / 12.5) ** 2)) * 7); bline(ux + rx * .4, uy - 6, ux + rx, uy, K.rdd); }
+    bp(ux, uy - 8, K.blk); bp(ux, uy - 9, K.blk); }
+  // queue : deux plumes
+  const ty = pose.tail ? -3 : 0;
+  bpoly([[-5, -10 + b], [-14, -8 + b + ty], [-14, -5 + b + ty], [-5, -5 + b]], K.dk);
+  bline(-6, -8 + b, -13, -7 + b + ty, K.br); bline(-7, -6 + b, -13, -5 + b + ty, K.dk2);
+  // pattes
+  if (pose.feet === 'tuck'){ bp(-1, -1 + b, K.od); bp(2, -1 + b, K.od); }
+  else { const fl = pose.feet === 'scratch' && pose.foot;
+    bline(-1, -2, -1, -1 - (fl ? 1 : 0), K.od); bline(2, -2, 2, -1, K.od);
+    bline(-3, 0 - (fl ? 1 : 0), 0, 0 - (fl ? 1 : 0), K.or); bline(1, 0, 4, 0, K.or); bp(-3, 0 - (fl ? 1 : 0), K.od); bp(4, 0, K.od); }
+  // corps rond
+  bell(0 + sh * .3, -8 + b, 7.8 + f, 7 + f, K.br);
+  for (const [a, c] of [[-5, -4], [-3, -2], [-6, -6], [-1, -1]]) bp(a, c + b, K.md);
+  // ventre clair
+  bell(3, -6 + b, 5 + f * .5, 4.8 + f * .3, K.lt); bell(3.6, -7.6 + b, 2.8, 2.2, K.lt2);
+  for (const [a, c] of [[2, -3], [5, -4], [1, -5]]) bp(a, c + b, K.lt3);
+  // dos : poisson d'avril
+  if (o.back === 'fish'){ bpoly([[-8, -12 + b], [-3, -14 + b], [-1, -12 + b], [-3, -10 + b]], K.bl2); bpoly([[-8, -12 + b], [-10, -14 + b], [-10, -10 + b]], K.bl2); bp(-3, -12 + b, K.blk); }
+  // aile avec ses plumes
+  const W2 = pose.wing;
+  if (pose.ruffle){ for (const [a, c] of [[-4, -15], [0, -16], [-7, -12], [5, -20]]) bp(a, c + b, K.br); bp(-8, -11 + b, K.lt); }
+  if (W2 === 'fold'){ bell(-1.5, -9 + b, 5.4, 3.6, K.dk); bline(-5, -10 + b, 1, -11 + b, K.br);
+    for (const xx of [-6, -4, -2]) bline(xx, -8 + b, xx - 1, -6 + b, K.dk2); bline(-7, -7 + b, -9, -5 + b, K.dk); }
+  else if (W2 === 'mid'){ bell(-2.5, -11 + b, 5, 3.2, K.dk); bline(-6, -11 + b, 0, -12 + b, K.br); }
+  else if (W2 === 'up'){ bpoly([[-2, -11 + b], [-11, -24 + b], [-7, -25 + b], [-4, -22 + b], [2, -12 + b]], K.dk); bline(-9, -22 + b, -3, -13 + b, K.br); bline(-10, -23 + b, -8, -25 + b, K.dk2); }
+  else if (W2 === 'down'){ bpoly([[-2, -10 + b], [-10, 0 + b], [-6, 1 + b], [2, -9 + b]], K.dk); bline(-8, -1 + b, -2, -9 + b, K.br); }
+  else if (W2 === 'grip'){ bpoly([[-3, -11 + b], [6, -4 + b], [7, -1 + b], [3, -2 + b], [-4, -7 + b]], K.dk); bline(-2, -9 + b, 5, -3 + b, K.br); }
+  // grosse tête
+  const H0x = 3 + hx, H0y = -14.5 + hy;
+  bell(H0x, H0y, 6 + f * .3, 5.6 + f * .3, K.br);
+  bline(H0x - 4, H0y - 4, H0x + 1, H0y - 5, K.br2); bp(H0x - 5, H0y - 2, K.md);
+  bell(H0x + 2.4, H0y + 3.4, 2.6, 1.5, K.lt);
+  // gros œil effaré, avec une cerne
+  const ex = Math.round(H0x - .5), ey = Math.round(H0y - 2.5);
+  const white = () => { brect(ex, ey, ex + 4, ey + 4, K.wh); bp(ex, ey, K.br); bp(ex + 4, ey, K.br); bp(ex, ey + 4, K.br); bp(ex + 4, ey + 4, K.br); };
+  const bag = () => { bline(ex, ey + 5, ex + 3, ey + 5, K.ink); bp(ex + 4, ey + 5, K.dk); };
+  if (pose.eye === 'closed'){ bline(ex, ey + 3, ex + 4, ey + 3, K.ink); bp(ex, ey + 2, K.ink); bag(); }
+  else if (pose.eye === 'happy'){ bp(ex, ey + 3, K.ink); bp(ex + 1, ey + 2, K.ink); bp(ex + 2, ey + 2, K.ink); bp(ex + 3, ey + 2, K.ink); bp(ex + 4, ey + 3, K.ink); bag(); }
+  else { white(); const sm = pose.eye === 'wide' ? 1 : 2;
+    const px = clamp(ex + 1 + Math.round(bird.gx * 1.2), ex, ex + 5 - sm - (sm === 1 ? 1 : 0)), py = clamp(ey + 1 + Math.round(bird.gy * .9 + .3), ey + (pose.eye === 'half' ? 2 : 0), ey + 5 - sm);
+    brect(px, py, px + sm - 1, py + sm - 1, K.ink);
+    if (pose.eye === 'half'){ brect(ex, ey, ex + 4, ey + 1, K.br); bline(ex, ey + 2, ex + 4, ey + 2, K.ink); }
+    bag(); }
+  // bec : fin, orange, avec le trait de la bouche dessous
+  const kx = Math.round(H0x + 5), ky = Math.round(H0y + .5);
+  if (pose.beak){ brect(kx, ky - 2, kx + 3, ky - 2, K.or); bp(kx + 4, ky - 2, K.od); brect(kx, ky - 1, kx + 2, ky, K.ink); bp(kx + 1, ky, K.pink); brect(kx, ky + 1, kx + 2, ky + 1, K.od); }
+  else { brect(kx, ky - 1, kx + 3, ky - 1, K.or); bp(kx + 4, ky - 1, K.od); bline(kx - 1, ky, kx + 2, ky, K.ink); }
+  if (o.beak === 'muguet'){ bline(kx + 3, ky, kx + 8, ky - 6, K.grn); bp(kx + 6, ky - 3, K.wh); bp(kx + 7, ky - 2, K.wh); bp(kx + 8, ky - 5, K.wh); bp(kx + 9, ky - 4, K.wh); bp(kx + 5, ky - 1, K.grn); }
+  // ---- cou
+  const nk = o.neck;
+  if (nk === 'scarf'){ brect(-1 + hx, -11 + b, 8, -9 + b, K.org); for (let x = 0; x <= 8; x += 3) bline(x, -11 + b, x, -9 + b, K.wh);
+    const wv = Math.round(Math.sin(t * 9) * (wind > 15 ? 1 : .5)); bline(-1, -10 + b, -7, -8 + b + wv, K.org); bline(-1, -9 + b, -7, -7 + b + wv, K.orgd); bp(-7, -9 + b + wv, K.wh); }
+  if (nk === 'tie'){ bp(6, -10 + b, K.navy); bp(5, -9 + b, K.navy); bp(6, -9 + b, K.navy); bline(6, -8 + b, 6, -5 + b, K.navy); bline(5, -7 + b, 5, -6 + b, K.blue); }
+  if (nk === 'bowtie'){ brect(4, -10 + b, 5, -8 + b, K.pink); brect(7, -10 + b, 8, -8 + b, K.pink); bp(6, -9 + b, K.pkd); }
+  if (nk === 'napkin'){ bpoly([[3, -10 + b], [9, -10 + b], [6, -5 + b]], K.wh); bp(6, -9 + b, K.red); }
+  // ---- visage
+  if (o.face === 'sunglasses'){ brect(ex - 1, ey + 1, ex + 4, ey + 2, K.blk); bline(ex - 4, ey + 1, ex - 1, ey + 1, K.blk); bp(ex + 3, ey + 1, K.wh); }
+  if (o.face === 'goggles'){ bline(ex - 6, ey + 1, ex - 1, ey + 1, K.tan); brect(ex - 1, ey, ex + 4, ey + 3, K.gry); brect(ex, ey + 1, ex + 3, ey + 2, K.bl2); bp(ex + 2, ey + 1, K.wh); }
+  if (o.face === 'glasses'){ for (let i = 0; i < 4; i++){ bp(ex - 1, ey + i, K.ink); bp(ex + 4, ey + i, K.ink); bp(ex + i, ey - 1, K.ink); bp(ex + i, ey + 4, K.ink); } bline(ex - 5, ey + 1, ex - 2, ey + 1, K.ink); }
+  // ---- chapeaux
+  const hxT = Math.round(H0x), hyT = Math.round(H0y - 6.5);
+  switch (o.hat){
+    case 'santa': bpoly([[hxT - 6, hyT + 1], [hxT + 6, hyT + 1], [hxT + 2, hyT - 6], [hxT - 3, hyT - 9], [hxT - 8, hyT - 6], [hxT - 3, hyT - 6]], K.red);
+      bline(hxT + 1, hyT - 5, hxT + 4, hyT, K.rdd); bline(hxT - 2, hyT - 8, hxT, hyT - 6, K.redl);
+      brect(hxT - 7, hyT, hxT + 7, hyT + 2, K.wh); for (let x = -7; x <= 7; x += 2) bp(hxT + x, hyT + 2, K.gl); bp(hxT - 6, hyT, K.gl); bp(hxT + 4, hyT + 1, K.gl);
+      bell(hxT - 9, hyT - 5, 2, 2, K.wh); bp(hxT - 10, hyT - 4, K.gl); break;
+    case 'party': for (let y = 0; y < 10; y++){ const w = (10 - y) * .55; brect(Math.round(hxT - w), hyT + 1 - y, Math.round(hxT + w), hyT + 1 - y, K.pink); }
+      for (const [a, c] of [[-2, 0], [2, -2], [-1, -4], [1, -6], [0, -1]]) bp(hxT + a, hyT + c, K.wh); bline(hxT + 1, hyT - 8, hxT + 3, hyT, K.pkd);
+      bell(hxT, hyT - 10, 1.6, 1.6, K.yel); bp(hxT + 1, hyT - 11, K.wh); bline(hxT + 5, hyT + 1, hxT + 6, hyT + 6, K.gry); break;
+    case 'crown': brect(hxT - 4, hyT - 1, hxT + 4, hyT + 1, K.yel); for (const dx of [-4, 0, 4]) bp(hxT + dx, hyT - 2, K.yel), bp(hxT + dx, hyT - 3, K.yel); bp(hxT, hyT, K.red); bp(hxT - 3, hyT, K.bl2); bp(hxT + 3, hyT, K.grn); break;
+    case 'bunny': for (const dx of [-2, 2]){ bell(hxT + dx, hyT - 5, 1.6, 4.6, K.wh); bline(hxT + dx, hyT - 8, hxT + dx, hyT - 3, K.pink); } break;
+    case 'beanie': bell(hxT, hyT + 1, 6, 4, K.org); for (let x = -5; x <= 5; x += 2) bline(hxT + x, hyT - 2, hxT + x, hyT + 1, K.orgd);
+      brect(hxT - 6, hyT + 1, hxT + 6, hyT + 3, K.wh); for (let x = -6; x <= 6; x += 2) bp(hxT + x, hyT + 2, K.gl); bell(hxT, hyT - 4, 2, 2, K.wh); bp(hxT + 1, hyT - 5, K.gl); break;
+    case 'nightcap': bpoly([[hxT - 5, hyT + 2], [hxT + 5, hyT + 2], [hxT + 2, hyT - 3], [hxT - 6, hyT - 2], [hxT - 8, hyT + 3]], K.navy); brect(hxT - 5, hyT + 1, hxT + 5, hyT + 2, K.bl2); bell(hxT - 8, hyT + 4, 1.5, 1.5, K.yel); for (const [a, c] of [[-2, -1], [1, 0], [-5, 1]]) bp(hxT + a, hyT + c, K.yel); break;
+    case 'headphones': bline(hxT - 4, hyT + 3, hxT - 4, hyT - 1, K.blk); bline(hxT - 4, hyT - 1, hxT + 2, hyT - 2, K.blk); bline(hxT + 2, hyT - 2, hxT + 5, hyT + 1, K.blk); brect(hxT - 5, hyT + 3, hxT - 3, hyT + 6, K.pink); bline(hxT - 5, hyT + 3, hxT - 5, hyT + 6, K.pkd); break;
+    case 'witch': brect(hxT - 7, hyT + 1, hxT + 7, hyT + 1, K.pur); bpoly([[hxT - 4, hyT + 1], [hxT + 4, hyT + 1], [hxT + 2, hyT - 6], [hxT - 1, hyT - 9], [hxT - 3, hyT - 7]], K.pur); brect(hxT - 4, hyT, hxT + 4, hyT, K.org); bp(hxT - 3, hyT - 2, K.pud); break;
+    case 'headband': brect(hxT - 5, hyT + 2, hxT + 5, hyT + 3, K.red); for (let x = -5; x <= 5; x += 3) bp(hxT + x, hyT + 2, K.wh); bline(hxT - 6, hyT + 3, hxT - 9, hyT + 5 + Math.round(Math.sin(t * 8)), K.red); break;
+    case 'beret': bell(hxT - 1, hyT + 1, 5.5, 2, K.blk); bp(hxT - 1, hyT - 2, K.blk); bp(hxT + 3, hyT + 1, K.gry); break;
+    case 'straw': brect(hxT - 8, hyT + 2, hxT + 8, hyT + 2, K.yel); brect(hxT - 4, hyT - 1, hxT + 4, hyT + 1, K.yel); brect(hxT - 4, hyT + 1, hxT + 4, hyT + 1, K.red); for (let x = -7; x <= 7; x += 3) bp(hxT + x, hyT + 2, K.yd); break;
+    case 'souwester': bpoly([[hxT - 6, hyT + 2], [hxT + 6, hyT + 2], [hxT + 4, hyT - 2], [hxT - 4, hyT - 2]], K.yel); bpoly([[hxT - 6, hyT + 2], [hxT - 9, hyT + 6], [hxT - 4, hyT + 3]], K.yel); bline(hxT - 4, hyT, hxT + 4, hyT, K.yd); break;
+    case 'clover': brect(hxT - 3, hyT - 6, hxT + 3, hyT, K.grn); brect(hxT - 6, hyT + 1, hxT + 6, hyT + 1, K.grn); brect(hxT - 3, hyT - 1, hxT + 3, hyT - 1, K.gd); bp(hxT + 1, hyT - 3, K.yel); break;
+  }
+  // ---- main (devant)
+  const hd = o.hand, sip = pose.sip;
+  if (hd === 'mug'){ const my = (sip ? -16 : -10) + b, X0 = sip ? 9 : 10;
+    brect(X0, my, X0 + 6, my + 6, K.red); brect(X0, my, X0 + 6, my, K.rdd); brect(X0 + 1, my + 1, X0 + 5, my + 1, K.cof); bp(X0 + 2, my + 1, K.md);
+    bline(X0 + 1, my + 2, X0 + 1, my + 5, K.redl); bline(X0 + 6, my + 2, X0 + 6, my + 6, K.rdd); brect(X0, my + 6, X0 + 6, my + 6, K.rdd);
+    brect(X0 + 3, my + 3, X0 + 4, my + 4, K.wh); bp(X0 + 3, my + 3, K.pink);
+    bp(X0 + 7, my + 1, K.red); bp(X0 + 8, my + 2, K.red); bp(X0 + 8, my + 3, K.red); bp(X0 + 8, my + 4, K.rdd); bp(X0 + 7, my + 5, K.rdd);
+    if (!sip) for (let w = 0; w < 2; w++) for (let k = 0; k < 7; k++){ const xx = X0 + 2 + w * 3 + Math.round(Math.sin(t * 3.2 - k * .8 + w * 2) * 1.2), yy = my - 2 - k;
+      if (k < 6 - w * 2 || Math.sin(t * 5 + w) > 0) steam.push([xx, yy, k > 3 ? K.gl : K.wh]); } }
+  if (hd === 'reflector'){ bpoly([[5, -11 + b], [15, -13 + b], [14, -3 + b], [5, -5 + b]], K.gl); bline(7, -10 + b, 12, -6 + b, K.wh); bline(9, -11 + b, 13, -8 + b, K.wh); }
+  if (hd === 'icecream'){ bpoly([[8, -9 + b], [12, -9 + b], [10, -3 + b]], K.tan); bell(10, -11 + b, 2.4, 2.2, K.pink); bp(9, -12 + b, K.wh); if (Math.sin(t * 2) > .5) bp(12, -8 + b, K.pink); }
+  if (hd === 'crepe'){ bell(10, -8 + b, 4, 1.3, K.yel); bp(9, -8 + b, K.yd); bp(11, -9 + b, K.yd); }
+  if (hd === 'flag'){ bline(9, -3 + b, 9, -20 + b, K.blk); brect(10, -20 + b, 11, -16 + b, K.blue); brect(12, -20 + b, 13, -16 + b, K.wh); brect(14, -20 + b, 15, -16 + b, K.red); }
+  if (hd === 'popcorn'){ brect(8, -10 + b, 12, -5 + b, K.red); for (let x = 8; x <= 12; x += 2) bline(x, -10 + b, x, -5 + b, K.wh); bell(10, -11 + b, 2.6, 1.4, K.cre); }
+  if (hd && hd !== 'umbrella' && W2 === 'fold'){ bell(7.5, -6 + b + (hd === 'mug' && sip ? -5 : 0), 3, 2.4, K.dk); bline(6, -5 + b, 9, -7 + b, K.dk2); }
+  if (hd === 'umbrella' && W2 === 'fold') bell(6, -8 + b, 2.6, 2, K.dk);
+  // contour : un pixel sombre autour de tout
+  const src = bbuf.slice(), sd = FLIP > 0 ? 1 : -1;
+  for (let y = 0; y < BW; y++) for (let x = 0; x < BW; x++){ const i = y * BW + x; if (src[i]) continue;
+    const below = y > 0 && src[i - BW], back = (x + sd >= 0 && x + sd < BW) && src[i + sd];
+    if (below || back) bbuf[i] = K.ink; }
+  for (const [a, c, col] of steam) bp(a, c, col);  // la fumée, sans contour
+  if (pose.lean){ const tmp = bbuf.slice(); bbuf.fill(0);
+    for (let y = 0; y < BW; y++){ const sh = Math.round((BO.y - y) * pose.lean); for (let x = 0; x < BW; x++){ const v = tmp[y * BW + x]; if (!v) continue; const nx = x + sh; if (nx >= 0 && nx < BW) bbuf[y * BW + nx] = v; } } }
+  new Uint32Array(bim.data.buffer).set(bbuf); bk.putImageData(bim, 0, 0);
+}
+
+// ================= déplacement de l'oiseau =================
+function updateBird(d, t, dt){
+  const b = bird;
+  if (b.state === 'arrive' || b.state === 'fly'){
+    b.t += dt; const P0 = b.from, P1 = b.to, dur = b.dur, f = clamp(b.t / dur, 0, 1), e = 1 - Math.pow(1 - f, 2.2);
+    b.x = lerp(P0.x, P1.x, e); b.y = lerp(P0.y, P1.y, e) - Math.sin(f * Math.PI) * b.arc + Math.sin(b.t * 13) * (1 - f) * 1.2;
+    b.flip = P1.x >= P0.x ? 1 : -1;
+    if (f >= 1){ b.state = 'perch'; b.x = P1.x; b.y = P1.y; b.landT = .35; b.flip = P1.flip || (Math.random() < .7 ? 1 : -1); b.nextAct = rnd(1.5, 3);
+      if (b.after){ const a = b.after; b.after = null; a(); } }
+    return;
+  }
+  if (b.landT > 0) b.landT -= dt;
+  if (b.act){ b.actT += dt;
+    if (b.act === 'hop' && b.actT > .05 && b.actT < .4) b.hop = Math.round(Math.sin((b.actT - .05) / .35 * Math.PI) * 4); else b.hop = 0;
+    if (b.act === 'turn' && b.actT > .1 && !b.turned){ b.flip = -b.flip; b.turned = true; }
+    if (b.act === 'sing' && Math.random() < dt * 3) fxs.push({ kind: 'note', x: b.x + 6 * b.flip, y: b.y - 20, t: 0, y0: 1 });
+    if (b.actT > ACTDUR[b.act]){ b.act = null; b.turned = false; b.nextAct = rnd(1.5, 4.5); } }
+  else { b.nextAct -= dt; if (b.nextAct <= 0 && b.landT <= 0){ const a = chooseAct(d);
+    if (a === 'visit') goVisit(); else { b.act = a; b.actT = 0; } } }
+  const x = wx();
+  if (isNight(d)){ if (Math.random() < dt * .6) fxs.push({ kind: 'zzz', x: b.x + 6 * b.flip, y: b.y - 20, t: 0, big: Math.random() < .5 }); }
+  else if (x.cold && Math.random() < dt * .35) fxs.push({ kind: 'puff', x: b.x + 9 * b.flip, y: b.y - 14, t: 0, dir: b.flip });
+  if (x.windy && Math.random() < dt * (W.gust > 60 ? 1.5 : .6)) fxs.push({ kind: 'feather', x: b.x - 4, y: b.y - 8, t: 0 });
+}
+const ACTDUR = { look: 1.6, tilt: 1.2, preen: 1.6, stretch: 1.3, flick: .6, hop: .5, sing: 2.2, fluff: 1.4, turn: .3, scratch: 1, yawn: 1.5, sip: 1.8, shiver: .7, sun: 3 };
+function goVisit(){ // petit tour sur le fil, puis retour au poteau
+  const b = bird, spot = Math.random() < .5 ? { x: pole.x - 15, y: pole.y + 3, flip: -1 } : { x: pole.x + 15, y: pole.y + 3, flip: 1 };
+  b.state = 'fly'; b.t = 0; b.from = { x: b.x, y: b.y }; b.to = spot; b.dur = .9; b.arc = 6;
+  b.after = () => { setTimeout(() => { if (b.state !== 'perch') return; b.state = 'fly'; b.t = 0; b.from = { x: b.x, y: b.y }; b.to = { x: perch.x, y: perch.y }; b.dur = .9; b.arc = 6; }, rnd(4000, 9000)); };
+}
+function arrive(){ const b = bird; b.state = 'arrive'; b.t = 0; const fromLeft = Math.random() < .6;
+  b.from = { x: fromLeft ? -14 : AW + 14, y: rnd(AH * .05, AH * .25) }; b.to = { x: perch.x, y: perch.y, flip: fromLeft ? 1 : -1 }; b.dur = 2.4; b.arc = 4; b.x = b.from.x; b.y = b.from.y; }
+
+// ================= interactions =================
+const mouse = { x: 0, y: 0, in: false };
+addEventListener('pointermove', e => { mouse.x = e.clientX; mouse.y = e.clientY; mouse.in = true; }, { passive: true });
+document.addEventListener('mouseleave', () => mouse.in = false);
+cv.addEventListener('click', e => { const bx = e.clientX / S, by = e.clientY / S;
+  if (Math.abs(bx - bird.x) < 10 && by > bird.y - 24 && by < bird.y + 2 && bird.state === 'perch'){ bird.chirp = .6; bird.act = 'hop'; bird.actT = 0; for (let i = 0; i < 2; i++) fxs.push({ kind: 'chirp', x: bird.x + (8 + i * 3) * bird.flip, y: bird.y - 22 - i * 2, t: 0 }); } });
+
+// ================= boucle =================
+let last = performance.now(), L_ = { day: 1, glow: 0 };
+function frame(tm){
+  const dt = Math.min(.05, (tm - last) / 1000); last = tm; const t = tm / 1000, d = now(), x = wx();
+  const SC = skyColors(d); L_ = SC.L; drawSky(d);
+  ax.clearRect(0, 0, AW, AH); ax.drawImage(SK, 0, 0);
+  // étoiles, lune, soleil
+  const night = 1 - L_.day;
+  if (night > .3){ const vis = 1 - clamp((W.cloud - 30) / 60, 0, 1) * .9;
+    for (const s of stars){ const a = (s.b ? .9 : .55) * night * vis * (.6 + .4 * Math.sin(t * 2 + s.p)); if (a < .08) continue; ax.fillStyle = `rgba(255,255,240,${a})`; P(ax, s.x, s.y); if (s.b && a > .6){ P(ax, s.x - 1, s.y); P(ax, s.x + 1, s.y); } }
+    const ph = moonPhase(d), mxp = Math.round(AW * .2), myp = Math.round(AH * .16);
+    ax.fillStyle = `rgba(246,244,220,${night * (x.overcast ? .35 : 1)})`; disc(ax, mxp, myp, 4.2);
+    const off = (ph < .5 ? 1 - ph * 4 : (ph - .5) * 4 - 1) * 8.4; ax.fillStyle = `rgba(16,20,48,${night * .85 * (x.overcast ? .35 : 1)})`; disc(ax, mxp + off, myp, 4.2);
+    if (Math.random() < dt * .02) fxs.push({ kind: 'spark', x: rnd(0, AW * .7), y: rnd(0, AH * .3), vx: 60, vy: 25, c: '#ffffff', life: .5, t: 0 });
+  }
+  if (L_.day > .05){ const m = mins(d), f = clamp((m - W.sunrise) / (W.sunset - W.sunrise), 0, 1), sxp = lerp(AW * .08, AW * .92, f), syp = AH * .55 - Math.sin(f * Math.PI) * AH * .42;
+    const vis = x.overcast || x.rain || x.fog ? .25 : 1;
+    ax.fillStyle = `rgba(255,236,160,${.35 * L_.day * vis})`; disc(ax, sxp, syp, 6.5); ax.fillStyle = `rgba(255,${L_.glow > .3 ? 190 : 230},${L_.glow > .3 ? 110 : 120},${L_.day * vis})`; disc(ax, sxp, syp, 4.3); }
+  drawClouds(ax, d, dt, L_);
+  const F = fete(d);
+  if (F && F.fx === 'fireworks' && night > .4) fireworks(ax, dt);
+  // premier plan : poteau, objets, oiseau
+  fx.clearRect(0, 0, AW, AH);
+  const lamp = drawPole(fx, d, L_, t);
+  const objKind = F && F.obj;
+  if (objKind) drawObj(fx, objKind, pole.x + 11, pole.y + 7, t, night > .5);
+  updateBird(d, t, dt);
+  const pose = birdPose(d, t, dt, L_), o = outfit(d);
+  drawBird(pose, o, t, W.wind);
+  const by = Math.round(bird.y - bird.hop + (bird.state === 'perch' && bird.landT > 0 ? 1 : 0));
+  fx.drawImage(bcv, Math.round(bird.x) - BO.x, by - BO.y);
+  // nuit : le premier plan s'assombrit, le lampadaire éclaire autour de lui
+  const lampOn = night > .45 || x.fog || x.storm;
+  if (night > .05){ fx.globalCompositeOperation = 'source-atop'; fx.fillStyle = `rgba(8,12,40,${night * .55})`; fx.fillRect(0, 0, AW, AH); fx.globalCompositeOperation = 'source-over'; }
+  ax.drawImage(FG, 0, 0);
+  if (lampOn){ const fl = .92 + Math.sin(t * 9) * .04 * (x.storm ? 3 : 1);
+    ax.fillStyle = `rgba(255,214,120,${.95 * fl})`; P(ax, lamp.LX - 1, lamp.LY, 4, 1);
+    for (let r = 14; r > 0; r -= 2){ ax.fillStyle = `rgba(255,200,110,${.045 * fl})`; disc(ax, lamp.LX + 1, lamp.LY, r); }
+    for (let y = lamp.LY + 1; y < AH; y++){ const w = (y - lamp.LY) * .55; for (let xx = -w; xx <= w; xx++){ if (((xx | 0) + y) % 2) continue; ax.fillStyle = `rgba(255,214,140,${.07 * (1 - (y - lamp.LY) / (AH - lamp.LY))})`; P(ax, lamp.LX + 1 + xx, y); } } }
+  else { ax.fillStyle = '#c8cdd4'; P(ax, lamp.LX - 1, lamp.LY, 4, 1); }
+  drawFx(ax, d, dt, L_);
+  // brouillard
+  if (x.fog){ for (let i = 0; i < 4; i++){ const yy = AH * (.25 + i * .18), off = (t * (3 + i)) % AW; ax.fillStyle = 'rgba(220,226,232,.16)'; for (let k = -1; k < 2; k++){ ax.fillRect(off + k * AW - AW * .2, yy, AW * .7, 5 + i); } } ax.fillStyle = 'rgba(210,216,224,.18)'; ax.fillRect(0, 0, AW, AH); }
+  // orage
+  if (x.storm){ nextBolt -= dt; if (nextBolt <= 0){ nextBolt = rnd(3, 9); flash = .18; bolt = { x: rnd(5, AW * .5), pts: [] }; let bx = bolt.x, byy = 0; while (byy < AH * .5){ bolt.pts.push([bx, byy]); byy += rnd(2, 5); bx += rnd(-3, 3); } } }
+  if (flash > 0){ flash -= dt; ax.fillStyle = `rgba(255,255,255,${flash * 2.5})`; ax.fillRect(0, 0, AW, AH); if (bolt){ ax.fillStyle = '#fffbe0'; for (let i = 1; i < bolt.pts.length; i++){ const [x0, y0] = bolt.pts[i - 1], [x1, y1] = bolt.pts[i]; const n = Math.max(1, Math.abs(y1 - y0)); for (let k = 0; k <= n; k++) P(ax, lerp(x0, x1, k / n), lerp(y0, y1, k / n)); } } }
+  // à l'écran
+  cx.imageSmoothingEnabled = false; cx.setTransform(1, 0, 0, 1, 0, 0);
+  cx.drawImage(A, 0, 0, AW, AH, 0, 0, AW * S * dpr, AH * S * dpr);
+  // texte des bulles : machine à écrire, rotation
+  for (const b of slots){ const sp = b.querySelector('span'); if (b._i < b._full.length){ b._i = Math.min(b._full.length, b._i + dt * 40); sp.textContent = b._full.slice(0, Math.floor(b._i)); } }
+  if (bird.state !== 'arrive' && t - lastRot > 9){ lastRot = t; if (MSGS.length > 2){ rot++; syncBubbles(false); } layoutBubbles(); }
+  if (bird.state !== 'arrive' && $('bubs').style.visibility !== 'visible'){ $('bubs').style.visibility = 'visible'; syncBubbles(true); }
+  requestAnimationFrame(frame);
+}
+$('bubs').style.visibility = 'hidden';
+addEventListener('resize', () => { layout(); if (bird.state === 'perch'){ bird.x = perch.x; bird.y = perch.y; } });
+layout(); rebuild(); arrive();
+loadWeather(); loadEvents();
+setInterval(loadWeather, 10 * 60 * 1000); setInterval(loadEvents, 3 * 60 * 1000); setInterval(rebuild, 60 * 1000);
+setInterval(() => layoutBubbles(), 1500);
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
