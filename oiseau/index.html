@@ -24,6 +24,13 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent}
 .bub[data-u] .in{cursor:pointer}
 @keyframes pop{0%{transform:scale(.4) translateY(10px);opacity:0}100%{transform:scale(1);opacity:1}}
 @keyframes float{0%,100%{translate:0 0}30%{translate:1px -3px}60%{translate:-1px -1px}}
+.bub .in span{white-space:pre-line}
+.bub .map{display:flex;gap:5px;align-items:flex-start;margin-top:5px;font-size:10.5px;line-height:1.3;color:#6b5a52;text-decoration:none;cursor:pointer}
+.bub .map svg{flex:none;margin-top:1px}
+.bub .map:hover{color:#ff5b2e;text-decoration:underline}
+.bub.tmr .in{background:#e4e9ff}
+.bub.tmr .in::after{background:#e4e9ff!important}
+.bub.tmr small{color:#4a5bd8}
 .bub .join{display:inline-block;margin-top:6px;padding:3px 8px 4px;background:#ff5b2e;color:#fff;font-weight:700;font-size:11px;text-decoration:none;box-shadow:0 0 0 2px #2a1b16;cursor:pointer}
 .bub .join:hover{background:#2a1b16}
 .bub .join.now{animation:pulse 1s steps(2) infinite}
@@ -141,6 +148,8 @@ function demoEvents(){ const d = now(), at = (dd, h, mi) => { const x = new Date
     { id: 3, url: '#', title: 'Dentiste', start: at(0, 14), end: at(0, 14, 45) },
     { id: 4, url: '#', title: 'Théâtre : Cyrano', start: at(0, 20), end: at(0, 22, 30), place: 'Comédie-Française' },
     { id: 5, url: '#', title: 'Call production', start: at(1, 9, 30), end: at(1, 10) },
+    { id: 8, url: '#', title: 'Faire moodboard Photo', start: day(1), allDay: true, task: true },
+    { id: 9, url: '#', title: 'Tournage Asfar', start: at(1, 10), end: at(1, 17) },
     { id: 7, url: '#', title: 'Point avec Tie Brek', start: new Date(d.getTime() + 10 * 60000).toISOString(), end: new Date(d.getTime() + 40 * 60000).toISOString(), meet: 'https://meet.google.com/abc-defg-hij' },
     { id: 6, url: '#', title: 'Concert Fred again..', start: at(3, 21) } ]; }
 async function loadEvents(){
@@ -158,7 +167,8 @@ async function loadEvents(){
 const who = e => { if (e.people) return e.people.split(',')[0].trim();
   const m = e.title.match(/(?:avec|chez|w\/|with)\s+([A-ZÀ-Ý][\wÀ-ÿ'’-]+(?:\s+[A-ZÀ-Ý][\wÀ-ÿ'’-]+)?)/) || e.title.match(/(?:anniv(?:ersaire)?|bday|birthday)\s*(?:de\s+|d['’]\s*|:\s*|-\s*)?([A-ZÀ-Ý][\wÀ-ÿ'’-]+)/i);
   return m ? m[1] : ''; };
-const lieu = e => e.place ? ` (${e.place})` : '';
+const lieu = e => '';
+const placeOf = e => e && e.place && !/^https?:|meet\.google|zoom\.us|teams\./i.test(e.place) ? e.place : '';
 // k = catégorie, re = mots qui la déclenchent, prop = accessoire porté autour du rendez-vous, up/now/past = phrases
 const CATS = [
   { k: 'anniv', re: /anniv|birthday|bday/i, prop: 'party', up: (e, W) => `C'est l'anniversaire de ${who(e) || 'quelqu\'un de cher'} ! N'oublie pas de lui souhaiter.`, now: e => `Joyeux anniversaire à ${who(e) || 'toi-sais-qui'} ! J'ai mis mon chapeau.`, past: e => `Tu as bien souhaité l'anniversaire de ${who(e) || 'la personne'} ?` },
@@ -219,15 +229,19 @@ function rebuild(){
     for (const e of today.filter(e => !e.allDay && e.s <= d && e.e2 > d)) msgs.push({ head: `en ce moment`, text: line(e, 'now'), u: e.url, meet: e.meet, ev: e });
     for (const e of left.filter(e => e.s > d)) msgs.push({ head: hm(e.s), text: line(e, 'up'), u: e.url, meet: e.meet, ev: e });
     for (const e of today.filter(e => !e.allDay && e.e2 <= d && d - e.e2 < 3 * 3600e3)) msgs.push({ head: 'tout à l\'heure', text: line(e, 'past'), u: e.url, meet: e.meet, ev: e });
-    if (h >= 17) for (const e of tomorrow.slice(0, 3)) msgs.push({ head: 'demain', text: line(e, 'tomorrow'), u: e.url, meet: e.meet, ev: e });
     // 4) un teaser de la semaine
     const later = ev.filter(e => e.s > tmr && !sameDay(e.s, tmr) && e.cat && ['theatre', 'concert', 'anniv', 'voyage', 'fete', 'mariage', 'expo', 'vacances', 'cine'].includes(e.cat.k));
     if (later[0]) msgs.push({ head: JOURS[later[0].s.getDay()], text: `${JOURS[later[0].s.getDay()][0].toUpperCase() + JOURS[later[0].s.getDay()].slice(1)} : ${later[0].title}. J'ai hâte !`, u: later[0].url });
   }
+  // demain, en une seule bulle teintée
+  if (!asleep && tomorrow.length){
+    const items = [...tomorrow].sort((a, b) => (a.allDay ? 1 : 0) - (b.allDay ? 1 : 0) || a.s - b.s).slice(0, 5).map(e => '• ' + (e.task ? 'À faire : ' : e.allDay ? '' : hm(e.s) + ' · ') + e.title);
+    if (tomorrow.length > 5) items.push(`• … et ${tomorrow.length - 5} autre${tomorrow.length > 6 ? 's' : ''}`);
+    msgs.push({ head: `demain · ${JOURS[tmr.getDay()]}`, text: items.join('\n'), tmr: true, key: 'tmr' }); }
   // rien à dire : quelques pensées en l'air
-  if (!asleep && !msgs.length){ const free = h < 12 ? ['Rien au programme ce matin. Je finis mon café.', 'Journée libre ! Le poteau est à nous.'] : h < 18 ? ['Rien de prévu. Je surveille le ciel.', 'Après-midi tranquille. Pas un rendez-vous à l\'horizon.'] : ['Soirée libre. Je regarde les fils.', 'Rien ce soir. Demain est un autre jour.'];
+  if (!asleep && !msgs.filter(m => !m.tmr).length){ const free = h < 12 ? ['Rien au programme ce matin. Je finis mon café.', 'Journée libre ! Le poteau est à nous.'] : h < 18 ? ['Rien de prévu. Je surveille le ciel.', 'Après-midi tranquille. Pas un rendez-vous à l\'horizon.'] : ['Soirée libre. Je regarde les fils.', 'Rien ce soir. Demain est un autre jour.'];
     msgs.push({ head: `${JOURS[d.getDay()]} ${d.getDate()}`, text: pick(free) }); }
-  msgs.forEach(m => m.key = m.ev ? `${m.ev.id}|${m.head === 'en ce moment' ? 'now' : m.head === "tout à l'heure" ? 'past' : m.head === 'demain' ? 'tmr' : 'up'}` : m.head + '|' + (m.dim ? 'z' : m.text.slice(0, 12)));
+  msgs.forEach(m => m.key = m.key ? m.key : m.ev ? `${m.ev.id}|${m.head === 'en ce moment' ? 'now' : m.head === "tout à l'heure" ? 'past' : m.head === 'demain' ? 'tmr' : 'up'}` : m.head + '|' + (m.dim ? 'z' : m.text.slice(0, 12)));
   MSGS = msgs;
   // les bulles déjà affichées suivent les nouveaux textes (ex. « dans 9 min »)
   for (const b of chat){ const n = msgs.find(m => m.key === b._m.key); if (n && n.text !== b._full){ const done = b._i >= b._full.length; b._full = n.text; b._m = n; if (done) b._i = n.text.length, b.querySelector('span').textContent = n.text; else b._init = 0; } }
@@ -242,9 +256,11 @@ const isNight = d => { const m = mins(d); return m >= 23 * 60 + 15 || m < 6 * 60
 let chatState = 'wait', chatT = 1.2, said = 0, burst = 0, silence = 4, msgIdx = 0, layT = 0;
 const urgent = m => m.meet && m.ev && !m.ev.allDay && (m.ev.s - now()) < 15 * 60000 && m.ev.e2 > now();
 function bubbleEl(m){
-  const b = document.createElement('div'); b.className = 'bub' + (m.dim ? ' dim' : ''); if (m.u && m.u !== '#') b.dataset.u = m.u;
+  const b = document.createElement('div'); b.className = 'bub' + (m.dim ? ' dim' : '') + (m.tmr ? ' tmr' : ''); if (m.u && m.u !== '#') b.dataset.u = m.u;
   const join = m.meet ? (/zoom/.test(m.meet) ? 'Rejoindre le Zoom' : /teams/.test(m.meet) ? 'Rejoindre Teams' : /meet\.google/.test(m.meet) ? 'Rejoindre le Meet' : "Rejoindre l'appel") : '';
-  b.innerHTML = `<div class="in"><small>${m.head}</small><span></span>${m.meet ? `<a class="join${urgent(m) ? ' now' : ''}" href="${m.meet}" target="_blank" rel="noopener">▶ ${join}</a>` : ''}</div>`;
+  const pl = m.ev ? placeOf(m.ev) : '', esc = t => t.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const map = pl ? `<a class="map" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(pl)}" target="_blank" rel="noopener"><svg width="9" height="12" viewBox="0 0 9 12"><path d="M4.5 0C2 0 0 2 0 4.5 0 8 4.5 12 4.5 12S9 8 9 4.5C9 2 7 0 4.5 0z" fill="#ff5b2e"/><circle cx="4.5" cy="4.5" r="1.7" fill="#fbfbf7"/></svg>${esc(pl)}</a>` : '';
+  b.innerHTML = `<div class="in"><small>${m.head}</small><span></span>${map}${m.meet ? `<a class="join${urgent(m) ? ' now' : ''}" href="${m.meet}" target="_blank" rel="noopener">▶ ${join}</a>` : ''}</div>`;
   b._full = m.text; b._i = 0; b._m = m; b.querySelector('span').textContent = '';
   { const r = document.createElement('i'); r.style.cssText = 'font-style:normal;opacity:0'; r.textContent = m.text; b.querySelector('span').append(r); } b._jx = Math.round(rnd(-1, 1) * 18);
   b.style.setProperty('--fd', rnd(2.8, 4.2).toFixed(2) + 's'); b.style.setProperty('--fdl', (-rnd(0, 3)).toFixed(2) + 's');
@@ -794,7 +810,7 @@ function frame(tm){
 addEventListener('resize', () => { layout(); if (bird.state === 'perch'){ bird.x = perch.x; bird.y = perch.y; } });
 layout(); rebuild(); arrive();
 loadWeather(); loadEvents();
-setInterval(loadWeather, 10 * 60 * 1000); setInterval(loadEvents, 3 * 60 * 1000); setInterval(rebuild, 60 * 1000);
+setInterval(loadWeather, 10 * 60 * 1000); setInterval(loadEvents, 90 * 1000); setInterval(rebuild, 60 * 1000);
 requestAnimationFrame(frame);
 })();
 </script>
