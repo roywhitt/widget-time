@@ -11,21 +11,27 @@
 html,body{margin:0;height:100%;overflow:hidden;background:transparent}
 #w{position:fixed;inset:0;border-radius:14px;overflow:hidden;background:transparent;clip-path:inset(0 round 14px)}
 #c{position:absolute;inset:0;width:100%;height:100%;image-rendering:pixelated;cursor:default}
-#bubs{position:absolute;left:10px;top:10px;pointer-events:none}
-.bub{position:absolute;left:0;max-width:min(var(--bw),210px);transition:opacity .35s steps(4),transform .35s steps(4),top .4s steps(5),left .4s steps(5)!important;font-size:var(--fs,12px)!important;width:max-content;box-sizing:border-box;padding:7px 10px 8px;background:#fbfbf7;color:#2a1b16;
-  font:500 12px/1.38 "Inter Tight",system-ui,sans-serif;box-shadow:0 0 0 2px #2a1b16,3px 3px 0 2px rgba(20,12,10,.35);
-  opacity:0;transform:translateY(4px);transition:opacity .35s steps(4),transform .35s steps(4),top .4s steps(5);pointer-events:auto;cursor:default}
-.bub.on{opacity:1;transform:none}
-.bub.dim{opacity:.72}
-.bub[data-u]{cursor:pointer}
+#bubs{position:absolute;inset:0;pointer-events:none}
+.bub{position:absolute;left:0;top:0;width:max-content;max-width:var(--bw,210px);pointer-events:auto;cursor:default;
+  transition:top .45s cubic-bezier(.3,1.4,.5,1),left .45s cubic-bezier(.3,1.4,.5,1),opacity .4s;opacity:0}
+.bub.on{opacity:1}
+.bub.out{opacity:0;transition:opacity .5s steps(4),top .45s,left .45s}
+.bub .in{position:relative;box-sizing:border-box;padding:8px 12px 9px;background:#fbfbf7;color:#2a1b16;font:500 var(--fs,12px)/1.38 "Inter Tight",system-ui,sans-serif;
+  border-radius:14px;box-shadow:0 0 0 2px #2a1b16,2px 4px 0 2px rgba(20,12,10,.28);transform-origin:var(--tx,20px) 110%;
+  animation:pop .32s steps(4) both,float var(--fd,3.4s) ease-in-out var(--fdl,0s) infinite}
+.bub.old .in{background:#f1f1ea}
+.bub.dim .in{opacity:.8}
+.bub[data-u] .in{cursor:pointer}
+@keyframes pop{0%{transform:scale(.4) translateY(10px);opacity:0}100%{transform:scale(1);opacity:1}}
+@keyframes float{0%,100%{translate:0 0}30%{translate:1px -3px}60%{translate:-1px -1px}}
 .bub .join{display:inline-block;margin-top:6px;padding:3px 8px 4px;background:#ff5b2e;color:#fff;font-weight:700;font-size:11px;text-decoration:none;box-shadow:0 0 0 2px #2a1b16;cursor:pointer}
 .bub .join:hover{background:#2a1b16}
 .bub .join.now{animation:pulse 1s steps(2) infinite}
 @keyframes pulse{50%{background:#2a1b16}}
 .bub small{display:block;font-size:9.5px;font-weight:700;letter-spacing:.05em;color:#ff5b2e;margin-bottom:1px;text-transform:uppercase}
-.bub.tail::after{content:"";position:absolute;left:var(--tx);bottom:-8px;width:8px;height:8px;background:#fbfbf7;
-  box-shadow:2px 0 0 #2a1b16,-2px 0 0 #2a1b16,0 2px 0 #2a1b16;clip-path:polygon(-3px 0,11px 0,11px 11px,-3px 11px)}
-.bub.tail::before{content:"";position:absolute;left:calc(var(--tx) + 8px);bottom:-14px;width:5px;height:5px;background:#fbfbf7;box-shadow:0 0 0 2px #2a1b16}
+.bub.tail .in::before{content:"";position:absolute;left:var(--tx);bottom:-20px;width:18px;height:22px;background:#2a1b16;clip-path:polygon(0 0,100% 0,var(--tip,50%) 100%)}
+.bub.tail .in::after{content:"";position:absolute;left:calc(var(--tx) + 3px);bottom:-14px;width:12px;height:16px;background:#fbfbf7;clip-path:polygon(0 0,100% 0,var(--tip,50%) 100%)}
+.bub .join{border-radius:8px}
 #msg{position:absolute;left:10px;bottom:8px;font:600 10px/1.3 "Inter Tight",system-ui,sans-serif;color:rgba(255,255,255,.75);text-shadow:0 1px 0 rgba(0,0,0,.5);pointer-events:none}
 </style>
 </head>
@@ -187,7 +193,7 @@ const evStart = e => e.allDay ? new Date(e.start + 'T00:00') : new Date(e.start)
 const evEnd = e => e.end ? (e.allDay ? new Date(e.end + 'T23:59') : new Date(e.end)) : e.allDay ? new Date(e.start + 'T23:59') : new Date(evStart(e).getTime() + 3600e3);
 
 // ================= messages des bulles =================
-let MSGS = [], PROP = null;
+let MSGS = [], PROP = null; const chat = [];
 function rebuild(){
   const d = now(), h = d.getHours(), x = wx(), F = fete(d);
   const ev = EVENTS.map(e => ({ ...e, s: evStart(e), e2: evEnd(e), cat: catOf(e) }));
@@ -203,18 +209,8 @@ function rebuild(){
     if (e.task && mode !== 'past') return mode === 'tomorrow' ? `Demain, à faire : ${e.title}.` : e.allDay ? `À faire aujourd'hui : ${e.title}.` : `${when}, à faire : ${e.title}.`;
     if (mode === 'now') return `En ce moment : ${e.title}.`; if (mode === 'past') return `${e.title} : c'est fait !`; return `${when} : ${e.title}${lieu(e)}.`; };
   if (ERR) msgs.push({ head: 'calendrier', text: ERR });
-  // 1) le titre du moment
-  if (asleep){
-    msgs.push({ head: 'zzz', text: tomorrow.length ? `Zzz… demain : ${tomorrow.filter(e => !e.allDay)[0] ? hm(tomorrow.filter(e => !e.allDay)[0].s) + ', ' : ''}${tomorrow[0].title}.` : 'Zzz… rien de prévu demain. Grasse mat ?', dim: true });
-  } else {
-    const n = today.filter(e => e.e2 > d || e.allDay).length;
-    let head = h < 12 ? (h < 5 ? 'Encore debout ?' : d.getDay() === 1 ? 'Bonjour ! Lundi… double café.' : 'Bonjour !') : h < 18 ? 'Cet après-midi' : 'Ce soir';
-    let text = h < 12 ? (n ? `${n} truc${n > 1 ? 's' : ''} au programme aujourd'hui.` : "Rien au programme aujourd'hui. Journée libre !")
-      : h < 18 ? (left.length ? `Encore ${left.length} truc${left.length > 1 ? 's' : ''} aujourd'hui.` : "Plus rien aujourd'hui. Profite !")
-      : (left.length ? `Encore ${left.length} truc${left.length > 1 ? 's' : ''} ce soir.` : tomorrow.length ? `Demain : ${tomorrow.length} truc${tomorrow.length > 1 ? 's' : ''} au programme.` : 'Soirée tranquille, demain aussi.');
-    if (d.getDay() === 5 && h >= 17) text = "C'est vendredi ! " + text;
-    msgs.push({ head: `${JOURS[d.getDay()]} ${d.getDate()}`, text: (head.endsWith('!') || head.endsWith('?') || head.endsWith('.') ? head + ' ' : '') + text });
-  }
+  // la nuit : il rêve de demain
+  if (asleep) msgs.push({ head: 'zzz', text: tomorrow.length ? `Zzz… demain : ${tomorrow.filter(e => !e.allDay)[0] ? hm(tomorrow.filter(e => !e.allDay)[0].s) + ', ' : ''}${tomorrow[0].title}.` : 'Zzz… rien de prévu demain. Grasse mat ?', dim: true });
   if (F && F.msg) msgs.push({ head: 'aujourd\'hui', text: F.msg });
   // 2) les anniversaires et journées entières
   for (const e of today.filter(e => e.allDay)) msgs.push({ head: e.cat && e.cat.k === 'anniv' ? 'anniversaire' : e.task ? 'à faire' : "aujourd'hui", text: line(e, e.cat && e.cat.k === 'anniv' ? 'up' : 'up'), u: e.url, meet: e.meet, ev: e });
@@ -228,48 +224,83 @@ function rebuild(){
     const later = ev.filter(e => e.s > tmr && !sameDay(e.s, tmr) && e.cat && ['theatre', 'concert', 'anniv', 'voyage', 'fete', 'mariage', 'expo', 'vacances', 'cine'].includes(e.cat.k));
     if (later[0]) msgs.push({ head: JOURS[later[0].s.getDay()], text: `${JOURS[later[0].s.getDay()][0].toUpperCase() + JOURS[later[0].s.getDay()].slice(1)} : ${later[0].title}. J'ai hâte !`, u: later[0].url });
   }
+  // rien à dire : quelques pensées en l'air
+  if (!asleep && !msgs.length){ const free = h < 12 ? ['Rien au programme ce matin. Je finis mon café.', 'Journée libre ! Le poteau est à nous.'] : h < 18 ? ['Rien de prévu. Je surveille le ciel.', 'Après-midi tranquille. Pas un rendez-vous à l\'horizon.'] : ['Soirée libre. Je regarde les fils.', 'Rien ce soir. Demain est un autre jour.'];
+    msgs.push({ head: `${JOURS[d.getDay()]} ${d.getDate()}`, text: pick(free) }); }
+  msgs.forEach(m => m.key = m.ev ? `${m.ev.id}|${m.head === 'en ce moment' ? 'now' : m.head === "tout à l'heure" ? 'past' : m.head === 'demain' ? 'tmr' : 'up'}` : m.head + '|' + (m.dim ? 'z' : m.text.slice(0, 12)));
   MSGS = msgs;
+  // les bulles déjà affichées suivent les nouveaux textes (ex. « dans 9 min »)
+  for (const b of chat){ const n = msgs.find(m => m.key === b._m.key); if (n && n.text !== b._full){ const done = b._i >= b._full.length; b._full = n.text; b._m = n; if (done) b._i = n.text.length, b.querySelector('span').textContent = n.text; else b._init = 0; } }
   // accessoire lié à l'activité du moment (1h30 avant jusqu'à la fin)
   const act = today.filter(e => e.cat && e.cat.prop && (e.allDay || (d >= e.s - 90 * 60000 && d < e.e2))).sort((a, b) => (a.allDay ? 1 : 0) - (b.allDay ? 1 : 0));
   PROP = act[0] ? act[0].cat.prop : null;
-  syncBubbles(true);
 }
 const isNight = d => { const m = mins(d); return m >= 23 * 60 + 15 || m < 6 * 60; };
 
-// ================= bulles : toujours là, elles tournent toutes seules =================
-let slots = [], rot = 0, lastRot = 0;
-function syncBubbles(reset){
-  const box = $('bubs'); if (reset){ rot = 0; }
-  const colW = (perch.x - 15) * S - 16, column = colW >= 140;
-  const max = Math.max(1, Math.min(3, column ? Math.floor(((pole.y + 6) * S - 10) / (W_ < 380 ? 78 : 66)) : Math.floor(((perch.y - 40) * S - 10) / 62)));
-  const urgent = m => m.meet && m.ev && !m.ev.allDay && (m.ev.s - now()) < 15 * 60000 && m.ev.e2 > now();
-  const pinned = [MSGS[0], ...MSGS.slice(1).filter(urgent)].filter(Boolean), rest = MSGS.slice(1).filter(m => !urgent(m));
-  const shown = [...pinned];
-  for (let i = 0; i < Math.min(max - pinned.length, rest.length); i++) shown.push(rest[(rot + i) % rest.length]);
-  const key = shown.map(m => m.text).join('|');
-  if (box.dataset.key === key && !reset) return; box.dataset.key = key;
-  // on garde les bulles identiques, on remplace les autres
-  const old = [...box.children]; const keep = new Map(old.map(b => [b.dataset.t, b]));
-  const els = shown.map((m, i) => { let b = keep.get(m.text); if (b){ keep.delete(m.text); return b; }
-    b = document.createElement('div'); b.className = 'bub' + (m.dim ? ' dim' : ''); b.dataset.t = m.text; if (m.u && m.u !== '#') b.dataset.u = m.u;
-    const join = m.meet ? (/zoom/.test(m.meet) ? 'Rejoindre le Zoom' : /teams/.test(m.meet) ? 'Rejoindre Teams' : /meet\.google/.test(m.meet) ? 'Rejoindre le Meet' : "Rejoindre l'appel") : '';
-    const soon = m.meet && m.ev && !m.ev.allDay && (m.ev.s - now()) < 15 * 60000 && m.ev.e2 > now();
-    b.innerHTML = `<small>${m.head}</small><span></span>${m.meet ? `<a class="join${soon ? ' now' : ''}" href="${m.meet}" target="_blank" rel="noopener">▶ ${join}</a>` : ''}`; b._full = m.text; b._i = 0; box.appendChild(b); requestAnimationFrame(() => b.classList.add('on')); return b; });
-  for (const b of keep.values()){ b.classList.remove('on'); setTimeout(() => b.remove(), 400); }
-  slots = els; layoutBubbles();
+// ================= bulles : une petite conversation qui sort de son bec =================
+// il dit quelques phrases l'une après l'autre (elles s'empilent comme un fil de messages), puis se tait un moment
+let chatState = 'wait', chatT = 1.2, said = 0, burst = 0, silence = 4, msgIdx = 0, layT = 0;
+const urgent = m => m.meet && m.ev && !m.ev.allDay && (m.ev.s - now()) < 15 * 60000 && m.ev.e2 > now();
+function bubbleEl(m){
+  const b = document.createElement('div'); b.className = 'bub' + (m.dim ? ' dim' : ''); if (m.u && m.u !== '#') b.dataset.u = m.u;
+  const join = m.meet ? (/zoom/.test(m.meet) ? 'Rejoindre le Zoom' : /teams/.test(m.meet) ? 'Rejoindre Teams' : /meet\.google/.test(m.meet) ? 'Rejoindre le Meet' : "Rejoindre l'appel") : '';
+  b.innerHTML = `<div class="in"><small>${m.head}</small><span></span>${m.meet ? `<a class="join${urgent(m) ? ' now' : ''}" href="${m.meet}" target="_blank" rel="noopener">▶ ${join}</a>` : ''}</div>`;
+  b._full = m.text; b._i = 0; b._m = m; b.querySelector('span').textContent = '';
+  { const r = document.createElement('i'); r.style.cssText = 'font-style:normal;opacity:0'; r.textContent = m.text; b.querySelector('span').append(r); } b._jx = Math.round(rnd(-1, 1) * 18);
+  b.style.setProperty('--fd', rnd(2.8, 4.2).toFixed(2) + 's'); b.style.setProperty('--fdl', (-rnd(0, 3)).toFixed(2) + 's');
+  return b;
 }
-function layoutBubbles(){
-  const colW = (perch.x - 15) * S - 16, column = colW >= 140, bw = column ? Math.min(colW, 300) : Math.min(W_ - 20, 280);
-  $('bubs').style.setProperty('--bw', bw + 'px'); $('bubs').style.setProperty('--fs', (bw < 200 ? 11.5 : 12) + 'px');
-  // bulles éparpillées : chacune un peu décalée, comme des pensées différentes
-  const OFF = [.05, .75, .3, .95], GAP = [10, 18, 12, 16], birdTop = (perch.y - 34) * S - 10, colR = (perch.x - 13) * S - 10;
-  let y = 0; slots.forEach((b, i) => { b.style.maxWidth = Math.min(185, W_ - 30) + 'px'; b.style.left = '0px';
-    const w = b.offsetWidth, h = b.offsetHeight, right = (y + h > birdTop) ? colR : W_ - 20;
-    const off = Math.round(Math.max(0, right - w) * OFF[(i + rot) % 4]);
-    b.style.left = off + 'px'; b.style.top = y + 'px'; y += h + GAP[(i + rot) % 4]; b.classList.toggle('tail', i === slots.length - 1);
-    const headX = (bird.x + 4) * S - 10; b.style.setProperty('--tx', (column ? b.offsetWidth - 26 : clamp(headX - 18, 14, b.offsetWidth - 26)) + 'px'); });
+function dropBubble(b){ const i = chat.indexOf(b); if (i >= 0) chat.splice(i, 1); b.classList.add('out'); setTimeout(() => b.remove(), 550); }
+function speakNext(){
+  if (!MSGS.length) return;
+  const visible = new Set(chat.map(b => b._m.key));
+  let m = MSGS.find(x => urgent(x) && !visible.has(x.key));
+  if (!m){ for (let k = 0; k < MSGS.length; k++){ const c = MSGS[(msgIdx + k) % MSGS.length]; if (!visible.has(c.key)){ m = c; msgIdx = (msgIdx + k + 1) % MSGS.length; break; } } }
+  if (!m) return;
+  const b = bubbleEl(m); $('bubs').appendChild(b); chat.push(b);
+  while (chat.length > maxBubbles()) dropBubble(chat.find(x => !urgent(x._m)) || chat[0]);
+  bird.talkT = Math.min(2.4, m.text.length / 42 + .3);
+  layoutChat(true); requestAnimationFrame(() => b.classList.add('on'));
 }
-$('bubs').addEventListener('click', e => { if (e.target.closest('a')) return; const b = e.target.closest('[data-u]'); if (b) window.open(b.dataset.u, '_blank'); });
+const maxBubbles = () => Math.max(1, Math.min(4, Math.floor(((bird.y - 27) * S) / 64)));
+function chatTick(dt){
+  if (bird.state === 'arrive') return;
+  chatT -= dt;
+  if (chatState === 'wait' && chatT <= 0){ chatState = 'talk'; said = 0; burst = Math.min(MSGS.length, isNight(now()) ? 1 : MSGS.length > 4 ? 4 : 3); if (!burst){ chatT = 3; chatState = 'wait'; return; } }
+  if (chatState === 'talk' && chatT <= 0){
+    if (said < burst){ speakNext(); said++; const last = chat[chat.length - 1]; chatT = last ? Math.max(2.4, last._full.length / 28 + 1.1) : 2; }
+    else { chatState = 'hold'; chatT = 4.5 + burst * .8; }
+  }
+  if (chatState === 'hold' && chatT <= 0){
+    // on laisse la parole retomber : les bulles s'en vont une à une, sauf une visio imminente
+    chat.filter(b => !urgent(b._m)).forEach((b, i) => setTimeout(() => dropBubble(b), i * 260));
+    chatState = 'wait'; chatT = silence; silence = Math.min(13, silence + 1.5);
+  }
+}
+function layoutChat(force){
+  const bw = Math.min(215, Math.round(W_ * .7)); $('bubs').style.setProperty('--bw', bw + 'px'); $('bubs').style.setProperty('--fs', (bw < 200 ? 11.5 : 12) + 'px');
+  const beakX = (bird.x + 9 * bird.flip) * S, headTop = (bird.y - bird.hop - 27) * S;
+  let tot0; tot0 = 0;
+  let tot = chat.reduce((a, b) => a + b.offsetHeight + 10, 0);
+  while (tot > headTop - 18 && chat.length > 1){ const old = chat.find(x => !urgent(x._m) && x !== chat[chat.length - 1]); if (!old) break; tot -= old.offsetHeight + 10; dropBubble(old); }
+  let y = headTop - 20;
+  for (let i = chat.length - 1; i >= 0; i--){
+    const b = chat[i], w = b.offsetWidth, h = b.offsetHeight, newest = i === chat.length - 1;
+    // la plus récente part du bec, du côté où il regarde ; les plus anciennes montent et se décalent un peu
+    let left = bird.flip > 0 ? beakX - 26 : beakX - w + 26;
+    if (!newest){ // les plus anciennes partent en zigzag d'un côté puis de l'autre
+      const room = Math.max(0, W_ - w - 18), side = ((chat.length - 1 - i) + (b._jx > 0 ? 1 : 0)) % 2 ? 1 : -1;
+      left = W_ / 2 - w / 2 + side * room * .5 + b._jx * .4; }
+    left = clamp(left, 8, W_ - w - 10);
+    const top = y - h; y = top - 10;
+    b._L = left; b._T = top;
+    b.classList.toggle('tail', newest); b.classList.toggle('old', !newest);
+    if (newest){ const tx = clamp(beakX - left - 12, 14, w - 26); b.style.setProperty('--tx', tx + 'px'); b.style.setProperty('--tip', (beakX - left - 12 > tx + 4 ? 88 : beakX - left - 12 < tx - 4 ? 12 : 50) + '%'); }
+  }
+  const minTop = Math.min(...chat.map(b => b._T)), shift = minTop < 4 ? 4 - minTop : 0;
+  for (const b of chat){ b.style.left = Math.round(b._L) + 'px'; b.style.top = Math.round(b._T + shift) + 'px'; }
+}
+$('bubs').addEventListener('click', e => { if (e.target.closest('a')) return; const b = e.target.closest('.bub[data-u]'); if (b) window.open(b.dataset.u, '_blank'); });
 
 // ================= rendu pixel =================
 const cv = $('c'), cx = cv.getContext('2d');
@@ -284,9 +315,9 @@ function layout(){
   S = clamp(Math.floor(Math.min(W_ / 92, H_ / 86)), 2, 8);
   AW = Math.ceil(W_ / S); AH = Math.ceil(H_ / S);
   for (const c of [A, FG, SK]){ c.width = AW; c.height = AH; }
-  pole.x = Math.round(AW * .75); pole.y = Math.round(AH * .74);
+  pole.x = Math.round(AW * (W_ < 520 ? .6 : .64)); pole.y = Math.round(AH * .74);
   perch.x = pole.x; perch.y = pole.y - 1;
-  sky.dirty = true; buildStars(); buildClouds(); syncBubbles(true);
+  sky.dirty = true; buildStars(); buildClouds();
 }
 const rgb = (r, g, b) => `rgb(${r | 0},${g | 0},${b | 0})`;
 const mix = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
@@ -499,6 +530,7 @@ function birdPose(d, t, dt, L){
   if (a === 'scratch'){ pose.hy = 1; pose.feet = 'scratch'; pose.foot = Math.floor(at * 12) % 2; }
   if (a === 'shiver'){ pose.shiver = Math.floor(at * 24) % 2 ? 1 : -1; pose.fluff = 1; }
   if (a === 'sun'){ pose.eye = 'happy'; pose.hy = -1; pose.hx = 1; }
+  if (b.talkT > 0 && !isNight(d)){ pose.beak = Math.floor(t * 9) % 2 ? 2 : 0; }
   if (b.chirp > 0){ b.chirp -= dt; pose.beak = Math.floor(b.chirp * 10) % 2 ? 2 : 0; pose.eye = 'happy'; }
   if (x.storm && flash > 0){ pose.fluff = 1; }
   return pose;
@@ -701,7 +733,7 @@ const mouse = { x: 0, y: 0, in: false };
 addEventListener('pointermove', e => { mouse.x = e.clientX; mouse.y = e.clientY; mouse.in = true; }, { passive: true });
 document.addEventListener('mouseleave', () => mouse.in = false);
 cv.addEventListener('click', e => { const bx = e.clientX / S, by = e.clientY / S;
-  if (Math.abs(bx - bird.x) < 10 && by > bird.y - 24 && by < bird.y + 2 && bird.state === 'perch'){ bird.chirp = .6; bird.act = 'hop'; bird.actT = 0; for (let i = 0; i < 2; i++) fxs.push({ kind: 'chirp', x: bird.x + (8 + i * 3) * bird.flip, y: bird.y - 22 - i * 2, t: 0 }); } });
+  if (Math.abs(bx - bird.x) < 10 && by > bird.y - 24 && by < bird.y + 2 && bird.state === 'perch'){ bird.chirp = .6; bird.act = 'hop'; bird.actT = 0; silence = 4; if (chatState === 'wait') chatT = Math.min(chatT, .6); for (let i = 0; i < 2; i++) fxs.push({ kind: 'chirp', x: bird.x + (8 + i * 3) * bird.flip, y: bird.y - 22 - i * 2, t: 0 }); } });
 
 // ================= boucle =================
 let last = performance.now(), L_ = { day: 1, glow: 0 };
@@ -753,17 +785,16 @@ function frame(tm){
   cx.imageSmoothingEnabled = false; cx.setTransform(1, 0, 0, 1, 0, 0);
   cx.drawImage(A, 0, 0, AW, AH, 0, 0, AW * S * dpr, AH * S * dpr);
   // texte des bulles : machine à écrire, rotation
-  for (const b of slots){ const sp = b.querySelector('span'); if (b._i < b._full.length){ b._i = Math.min(b._full.length, b._i + dt * 40); sp.textContent = b._full.slice(0, Math.floor(b._i)); } }
-  if (bird.state !== 'arrive' && t - lastRot > 9){ lastRot = t; if (MSGS.length > 2){ rot++; syncBubbles(false); } layoutBubbles(); }
-  if (bird.state !== 'arrive' && $('bubs').style.visibility !== 'visible'){ $('bubs').style.visibility = 'visible'; syncBubbles(true); }
+  for (const b of chat){ if (b._i < b._full.length || !b._init){ b._init = 1; b._i = Math.min(b._full.length, b._i + dt * 38); const k = Math.floor(b._i), sp = b.querySelector('span');
+    sp.textContent = ''; sp.append(b._full.slice(0, k)); if (k < b._full.length){ const r = document.createElement('i'); r.style.cssText = 'font-style:normal;opacity:0'; r.textContent = b._full.slice(k); sp.append(r); } } }
+  chatTick(dt); layT -= dt; if (layT <= 0){ layT = .12; layoutChat(); }
+  if (bird.talkT > 0) bird.talkT -= dt;
   requestAnimationFrame(frame);
 }
-$('bubs').style.visibility = 'hidden';
 addEventListener('resize', () => { layout(); if (bird.state === 'perch'){ bird.x = perch.x; bird.y = perch.y; } });
 layout(); rebuild(); arrive();
 loadWeather(); loadEvents();
 setInterval(loadWeather, 10 * 60 * 1000); setInterval(loadEvents, 3 * 60 * 1000); setInterval(rebuild, 60 * 1000);
-setInterval(() => layoutBubbles(), 1500);
 requestAnimationFrame(frame);
 })();
 </script>
